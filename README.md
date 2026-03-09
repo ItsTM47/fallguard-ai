@@ -35,6 +35,12 @@ Or run everything with MLflow too (starts Docker `mlflow` service first):
 npm run dev:all:with-mlflow
 ```
 
+Stop everything (local + Docker):
+
+```bash
+npm run dev:stop
+```
+
 - If `NGROK_DOMAIN` is set in `.env.local`, it will run `ngrok http --domain <NGROK_DOMAIN> <LINE_RELAY_PORT>`.
 - If `NGROK_DOMAIN` is empty, it will run `ngrok http <LINE_RELAY_PORT>`.
 - If `LINE_PUBLIC_BASE_URL` is empty and `NGROK_DOMAIN` is set, it is auto-filled as `https://<NGROK_DOMAIN>` for that session.

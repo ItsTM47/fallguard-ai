@@ -8,6 +8,7 @@
     "dev:relay": "node server/line-relay.mjs",
     "dev:all": "node scripts/dev-all.mjs",
     "dev:all:with-mlflow": "node scripts/dev-all.mjs --with-mlflow",
+    "dev:stop": "node scripts/dev-stop.mjs",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
