@@ -42,6 +42,7 @@ services:
       MLFLOW_PORT: "5001"
       MLFLOW_BACKEND_STORE_URI: ${MLFLOW_BACKEND_STORE_URI:-sqlite:////mlflow/mlflow.db}
       MLFLOW_DEFAULT_ARTIFACT_ROOT: ${MLFLOW_DEFAULT_ARTIFACT_ROOT:-/mlflow/artifacts}
+      MLFLOW_ALLOWED_HOSTS: ${MLFLOW_ALLOWED_HOSTS:-*}
     ports:
       - "${MLFLOW_PORT:-5001}:5001"
     volumes:

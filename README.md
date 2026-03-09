@@ -98,6 +98,7 @@ docker compose logs -f --tail=200
 Notes:
 - Compose uses `.env.local` for relay secrets (`LINE_CHANNEL_ACCESS_TOKEN`, `LINE_TARGET_USER_ID`, etc.).
 - Inside Docker, relay talks to MLflow via `http://mlflow:5001` by default.
+- MLflow host validation is enabled. Docker dev default uses `MLFLOW_ALLOWED_HOSTS=*` to avoid local host-header issues. For production, set a strict allow-list.
 - If host ports are occupied, override before running:
   - `WEB_PORT=5174 RELAY_PORT=8788 MLFLOW_PORT=5002 docker compose up --build -d`
 
