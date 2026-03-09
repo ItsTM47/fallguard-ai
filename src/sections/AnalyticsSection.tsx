@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import type { DayButtonProps } from 'react-day-picker';
 import { AlertTriangle, BarChart3, BrainCircuit, CalendarDays, Clock3, MapPin, RefreshCcw, Sparkles } from 'lucide-react';
 import { Calendar } from '@/components/ui/calendar';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -9,12 +9,15 @@ import { FallHistoryService } from '@/services/fallHistory';
 import type { FallEvent } from '@/services/fallHistory';
 import { generateMockLlmInsight } from '@/services/llmAnalytics';
 import type { LlmInsightResult } from '@/services/llmAnalytics';
+import { cn } from '@/lib/utils';
 
 const startOfDayMs = (date: Date): number => {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
   return d.getTime();
 };
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const formatTime = (timestamp: number): string => {
   return new Date(timestamp).toLocaleTimeString('th-TH', {
@@ -29,9 +32,33 @@ const formatHourRange = (hour: number): string => {
   return `${hour.toString().padStart(2, '0')}:00-${next.toString().padStart(2, '0')}:00`;
 };
 
+type RiskLevel = 'none' | 'low' | 'medium' | 'high';
+type EventSeverity = 'low' | 'medium' | 'high';
+
+const getRiskLevelByDayCount = (count: number): RiskLevel => {
+  if (count >= 4) return 'high';
+  if (count >= 2) return 'medium';
+  if (count >= 1) return 'low';
+  return 'none';
+};
+
+const getEventSeverity = (event: FallEvent): EventSeverity => {
+  const confidencePct = event.confidence * 100;
+  if (confidencePct >= 85) return 'high';
+  if (confidencePct >= 70) return 'medium';
+  return 'low';
+};
+
+const riskLegend = [
+  { label: '1 ครั้ง', swatch: 'bg-yellow-400/80 border-yellow-300/70' },
+  { label: '2-3 ครั้ง', swatch: 'bg-amber-400/80 border-amber-300/70' },
+  { label: '4+ ครั้ง', swatch: 'bg-rose-400/80 border-rose-300/70' }
+] as const;
+
 const AnalyticsSection: React.FC = () => {
   const [history, setHistory] = useState<FallEvent[]>([]);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
+  const [calendarMonth, setCalendarMonth] = useState<Date>(new Date());
   const [insight, setInsight] = useState<LlmInsightResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
@@ -54,6 +81,11 @@ const AnalyticsSection: React.FC = () => {
     }
   }, [history, selectedDate]);
 
+  useEffect(() => {
+    if (!selectedDate) return;
+    setCalendarMonth(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1));
+  }, [selectedDate]);
+
   const fallsByDay = useMemo(() => {
     const grouped = new Map<number, FallEvent[]>();
     history.forEach((event) => {
@@ -68,12 +100,58 @@ const AnalyticsSection: React.FC = () => {
     return grouped;
   }, [history]);
 
-  const daysWithFalls = useMemo(() => {
-    return Array.from(fallsByDay.keys()).map((dayTs) => new Date(dayTs));
+  const dayCountMap = useMemo(() => {
+    const map = new Map<number, number>();
+    for (const [dayTs, events] of fallsByDay.entries()) {
+      map.set(dayTs, events.length);
+    }
+    return map;
   }, [fallsByDay]);
 
   const selectedDayKey = selectedDate ? startOfDayMs(selectedDate) : null;
-  const selectedDayEvents = selectedDayKey !== null ? (fallsByDay.get(selectedDayKey) ?? []) : [];
+  const selectedDayEvents = useMemo(() => {
+    if (selectedDayKey === null) return [];
+    const events = fallsByDay.get(selectedDayKey) ?? [];
+    return [...events].sort((a, b) => a.timestamp - b.timestamp);
+  }, [fallsByDay, selectedDayKey]);
+
+  const selectedDayByHour = useMemo(() => {
+    const grouped = new Map<number, FallEvent[]>();
+    selectedDayEvents.forEach((event) => {
+      const hour = new Date(event.timestamp).getHours();
+      const list = grouped.get(hour) ?? [];
+      list.push(event);
+      grouped.set(hour, list);
+    });
+    return grouped;
+  }, [selectedDayEvents]);
+
+  const selectedDaySeverity = useMemo(() => {
+    const summary = { low: 0, medium: 0, high: 0 };
+    selectedDayEvents.forEach((event) => {
+      const severity = getEventSeverity(event);
+      summary[severity] += 1;
+    });
+    return summary;
+  }, [selectedDayEvents]);
+
+  const monthRiskSummary = useMemo(() => {
+    const summary = { low: 0, medium: 0, high: 0, total: 0, maxDaily: 0 };
+    const targetYear = calendarMonth.getFullYear();
+    const targetMonth = calendarMonth.getMonth();
+
+    for (const [dayTs, count] of dayCountMap.entries()) {
+      const date = new Date(dayTs);
+      if (date.getFullYear() !== targetYear || date.getMonth() !== targetMonth) continue;
+
+      const level = getRiskLevelByDayCount(count);
+      if (level !== 'none') summary[level] += 1;
+      summary.total += count;
+      if (count > summary.maxDaily) summary.maxDaily = count;
+    }
+
+    return summary;
+  }, [calendarMonth, dayCountMap]);
 
   const totalFalls = history.length;
   const averageConfidence = totalFalls > 0
@@ -104,6 +182,49 @@ const AnalyticsSection: React.FC = () => {
     return hourlyData.reduce((max, item) => Math.max(max, item.count), 0);
   }, [hourlyData]);
 
+  const activeDays = dayCountMap.size;
+
+  const topLocation = useMemo(() => {
+    if (history.length === 0) return '-';
+    const counts = new Map<string, number>();
+    history.forEach((event) => {
+      const location = event.location || 'ไม่ระบุ';
+      counts.set(location, (counts.get(location) ?? 0) + 1);
+    });
+
+    let top = '-';
+    let max = 0;
+    for (const [location, count] of counts.entries()) {
+      if (count > max) {
+        max = count;
+        top = location;
+      }
+    }
+    return top;
+  }, [history]);
+
+  const weeklyData = useMemo(() => {
+    const endDay = startOfDayMs(selectedDate ?? new Date());
+    const startDay = endDay - (27 * DAY_MS);
+    const buckets = [0, 0, 0, 0];
+
+    history.forEach((event) => {
+      const dayTs = startOfDayMs(new Date(event.timestamp));
+      if (dayTs < startDay || dayTs > endDay) return;
+      const weekIndex = Math.min(3, Math.floor((dayTs - startDay) / (7 * DAY_MS)));
+      buckets[weekIndex] += 1;
+    });
+
+    return buckets.map((count, index) => ({
+      label: `W${index + 1}`,
+      count
+    }));
+  }, [history, selectedDate]);
+
+  const maxWeeklyCount = useMemo(() => {
+    return weeklyData.reduce((max, item) => Math.max(max, item.count), 0);
+  }, [weeklyData]);
+
   const runAnalysis = useCallback(async () => {
     setIsAnalyzing(true);
     try {
@@ -122,262 +243,431 @@ const AnalyticsSection: React.FC = () => {
     reloadHistory();
   };
 
+  const CalendarDayCell = useMemo(() => {
+    const Component = ({ day, modifiers, className, ...props }: DayButtonProps) => {
+      const dayCount = dayCountMap.get(startOfDayMs(day.date)) ?? 0;
+      const riskLevel = getRiskLevelByDayCount(dayCount);
+      const dotCount = Math.min(dayCount, 3);
+
+      const defaultTone = riskLevel === 'high'
+        ? 'bg-rose-500/18 border-rose-400/45 text-rose-100 hover:bg-rose-500/28'
+        : riskLevel === 'medium'
+          ? 'bg-amber-500/18 border-amber-400/45 text-amber-100 hover:bg-amber-500/28'
+          : riskLevel === 'low'
+            ? 'bg-yellow-500/18 border-yellow-400/45 text-yellow-100 hover:bg-yellow-500/28'
+            : 'border-transparent text-slate-200 hover:bg-slate-800/70';
+
+      const dotTone = modifiers.selected
+        ? 'bg-slate-700'
+        : riskLevel === 'high'
+          ? 'bg-rose-200'
+          : riskLevel === 'medium'
+            ? 'bg-amber-200'
+            : 'bg-yellow-200';
+
+      return (
+        <button
+          {...props}
+          className={cn(
+            'relative h-9 w-full rounded-md border text-[13px] leading-none transition-colors duration-150',
+            'flex flex-col items-center justify-center gap-0.5 select-none',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/70',
+            !modifiers.selected && !modifiers.outside && defaultTone,
+            modifiers.outside && !modifiers.selected && 'text-slate-500/70 border-transparent hover:bg-slate-800/40',
+            modifiers.today && !modifiers.selected && 'ring-1 ring-cyan-400/80',
+            modifiers.selected && 'bg-slate-100 border-slate-200 text-slate-900 shadow-sm',
+            modifiers.disabled && 'opacity-40 pointer-events-none',
+            className
+          )}
+        >
+          <span>{day.date.getDate()}</span>
+          {dotCount > 0 && (
+            <span className="flex items-center gap-0.5">
+              {Array.from({ length: dotCount }).map((_, index) => (
+                <span key={`${day.date.toISOString()}-${index}`} className={cn('h-1 w-1 rounded-full', dotTone)} />
+              ))}
+            </span>
+          )}
+        </button>
+      );
+    };
+
+    Component.displayName = 'AnalyticsCalendarDayCell';
+    return Component;
+  }, [dayCountMap]);
+
+  const selectedDateLabel = selectedDate
+    ? selectedDate.toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' })
+    : '-';
+  const selectedDayOfWeek = selectedDate
+    ? selectedDate.toLocaleDateString('th-TH', { weekday: 'long' })
+    : '';
+
   return (
     <section id="analytics-section" className="relative py-20 px-4 overflow-hidden">
       <div className="absolute inset-0 bg-gradient-to-b from-slate-900 via-slate-950 to-slate-900" />
       <div className="absolute -top-24 left-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-cyan-400/10 blur-3xl" />
       <div className="absolute bottom-0 right-0 h-80 w-80 rounded-full bg-emerald-400/10 blur-3xl" />
 
-      <div className="relative z-10 max-w-screen-2xl mx-auto space-y-6">
-        <div className="text-center">
-          <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/30 bg-cyan-400/10 px-4 py-1.5 text-cyan-300">
+      <div className="relative z-10 max-w-screen-2xl mx-auto space-y-5">
+        <div className="text-center space-y-3">
+          <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/35 bg-cyan-400/12 px-4 py-1.5 text-cyan-300">
             <CalendarDays className="w-4 h-4" />
             <span className="text-sm font-medium">Analytics Mockup</span>
           </div>
-          <h2 className="mt-4 text-3xl md:text-4xl font-bold text-white">
+          <h2 className="text-3xl md:text-4xl font-bold text-white">
             ปฏิทินเหตุการณ์ล้ม + LLM วิเคราะห์สถิติ
           </h2>
-          <p className="mt-3 text-slate-400 max-w-2xl mx-auto">
-            ดูว่าล้มวันไหน เวลาไหน และอ่านสรุปเชิงวิเคราะห์แบบ LLM (Mock) สำหรับรายงาน MLOps
+          <p className="text-slate-400 max-w-3xl mx-auto">
+            โครงวางเหมือนแดชบอร์ดปฏิทินเต็มรูปแบบ: ปฏิทินด้านซ้าย, Timeline รายชั่วโมงด้านขวา และสรุปสถิติ+LLM ด้านล่าง
           </p>
         </div>
 
-        <div className="grid xl:grid-cols-5 gap-6">
-          <Card className="xl:col-span-2 border-cyan-500/25 bg-slate-900/60 backdrop-blur">
-            <CardHeader className="pb-4">
-              <CardTitle className="text-white flex items-center gap-2">
-                <CalendarDays className="w-5 h-5 text-cyan-300" />
-                ปฏิทินเหตุการณ์
-              </CardTitle>
-              <CardDescription>
-                วันที่มีเหตุการณ์จะถูกไฮไลต์บนปฏิทิน
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="rounded-xl border border-slate-700 bg-slate-950/60 p-2 flex justify-center">
-                <Calendar
-                  mode="single"
-                  selected={selectedDate}
-                  onSelect={setSelectedDate}
-                  modifiers={{ hasFall: daysWithFalls }}
-                  modifiersStyles={{
-                    hasFall: {
-                      backgroundColor: 'rgba(244, 63, 94, 0.28)',
-                      color: '#ffe4e6',
-                      borderRadius: '10px',
-                      fontWeight: 700
-                    }
-                  }}
-                />
+        <div className="rounded-3xl border border-slate-700/70 bg-slate-900/55 backdrop-blur-xl overflow-hidden">
+          <div className="grid xl:grid-cols-[340px,1fr] min-h-[840px]">
+            <aside className="bg-slate-900/65 border-b xl:border-b-0 xl:border-r border-slate-700/70 flex flex-col">
+              <div className="px-5 py-4 border-b border-slate-700/70">
+                <div className="flex items-center gap-2 text-cyan-300">
+                  <CalendarDays className="w-4 h-4" />
+                  <h3 className="text-base font-semibold text-white">ปฏิทินเหตุการณ์</h3>
+                </div>
+                <p className="text-xs text-slate-400 mt-1">ดูความหนาแน่นของการล้มในแต่ละวัน</p>
               </div>
 
-              <div className="rounded-xl border border-slate-700/80 bg-slate-900/70 p-4 space-y-2">
-                <p className="text-slate-300 text-sm">
-                  วันที่เลือก: <span className="font-medium text-white">{selectedDate?.toLocaleDateString('th-TH') || '-'}</span>
-                </p>
-                <p className="text-slate-300 text-sm">
-                  จำนวนครั้งที่ล้ม: <span className="font-semibold text-rose-300">{selectedDayEvents.length}</span>
-                </p>
+              <div className="p-4 space-y-4">
+                <div className="rounded-2xl border border-slate-700 bg-slate-950/65 p-2">
+                  <Calendar
+                    mode="single"
+                    month={calendarMonth}
+                    onMonthChange={setCalendarMonth}
+                    selected={selectedDate}
+                    onSelect={setSelectedDate}
+                    showOutsideDays
+                    components={{ DayButton: CalendarDayCell }}
+                    className="w-full"
+                    classNames={{
+                      root: 'w-full',
+                      months: 'w-full',
+                      month: 'w-full gap-3',
+                      nav: 'flex items-center justify-between px-1',
+                      button_previous: 'h-8 w-8 rounded-full border border-slate-600 bg-slate-900/80 text-slate-200 hover:bg-slate-800',
+                      button_next: 'h-8 w-8 rounded-full border border-slate-600 bg-slate-900/80 text-slate-200 hover:bg-slate-800',
+                      month_caption: 'flex h-8 items-center justify-center',
+                      caption_label: 'text-base font-semibold text-slate-100 tracking-wide',
+                      weekdays: 'grid grid-cols-7 gap-1',
+                      weekday: 'text-center text-[11px] font-medium text-slate-400',
+                      week: 'grid grid-cols-7 gap-1 mt-1',
+                      day: 'aspect-square p-0',
+                      outside: '',
+                      today: ''
+                    }}
+                  />
+                </div>
+
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-400">
+                  {riskLegend.map((item) => (
+                    <div key={item.label} className="inline-flex items-center gap-2">
+                      <span className={cn('h-2.5 w-2.5 rounded-full border', item.swatch)} />
+                      <span>{item.label}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="rounded-lg border border-slate-700 bg-slate-900/80 px-2 py-2 text-center">
+                    <p className="text-[10px] text-slate-500">1 ครั้ง</p>
+                    <p className="text-lg font-semibold text-yellow-200">{monthRiskSummary.low}</p>
+                  </div>
+                  <div className="rounded-lg border border-slate-700 bg-slate-900/80 px-2 py-2 text-center">
+                    <p className="text-[10px] text-slate-500">2-3 ครั้ง</p>
+                    <p className="text-lg font-semibold text-amber-200">{monthRiskSummary.medium}</p>
+                  </div>
+                  <div className="rounded-lg border border-slate-700 bg-slate-900/80 px-2 py-2 text-center">
+                    <p className="text-[10px] text-slate-500">4+ ครั้ง</p>
+                    <p className="text-lg font-semibold text-rose-200">{monthRiskSummary.high}</p>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-slate-700 bg-slate-900/75 px-3 py-3 space-y-1">
+                  <p className="text-xs text-slate-400">
+                    วันที่เลือก: <span className="text-slate-100 font-medium">{selectedDate?.toLocaleDateString('th-TH') || '-'}</span>
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    เหตุการณ์วันนี้: <span className="text-rose-200 font-semibold">{selectedDayEvents.length} ครั้ง</span>
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    รวมทั้งเดือน: <span className="text-cyan-200 font-semibold">{monthRiskSummary.total} ครั้ง</span>
+                  </p>
+                </div>
+
+                <Button
+                  variant="outline"
+                  className="w-full border-slate-600 text-slate-200 bg-slate-900 hover:bg-slate-800"
+                  onClick={handleRefresh}
+                >
+                  <RefreshCcw className="w-4 h-4 mr-2" />
+                  รีเฟรชข้อมูล
+                </Button>
+              </div>
+            </aside>
+
+            <div className="flex flex-col min-h-0">
+              <div className="px-5 py-4 border-b border-slate-700/70 bg-slate-900/40 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-2xl font-semibold text-white">{selectedDateLabel}</div>
+                  <div className="text-xs text-slate-400">{selectedDayOfWeek}</div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Badge className="border-slate-600 bg-slate-800/90 text-slate-200">
+                    <Clock3 className="w-3.5 h-3.5 mr-1" />
+                    รวม {selectedDayEvents.length} เหตุการณ์
+                  </Badge>
+                  {selectedDaySeverity.low > 0 && (
+                    <Badge className="bg-yellow-500/15 text-yellow-100 border-yellow-400/35">
+                      ต่ำ {selectedDaySeverity.low}
+                    </Badge>
+                  )}
+                  {selectedDaySeverity.medium > 0 && (
+                    <Badge className="bg-amber-500/15 text-amber-100 border-amber-400/35">
+                      กลาง {selectedDaySeverity.medium}
+                    </Badge>
+                  )}
+                  {selectedDaySeverity.high > 0 && (
+                    <Badge className="bg-rose-500/15 text-rose-100 border-rose-400/35">
+                      สูง {selectedDaySeverity.high}
+                    </Badge>
+                  )}
+                </div>
               </div>
 
-              <Button
-                variant="outline"
-                className="w-full border-slate-600 text-slate-200 bg-slate-900 hover:bg-slate-800"
-                onClick={handleRefresh}
-              >
-                <RefreshCcw className="w-4 h-4 mr-2" />
-                รีเฟรชข้อมูล
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card className="xl:col-span-3 border-slate-700/70 bg-slate-900/50 backdrop-blur">
-            <CardHeader className="pb-4">
-              <CardTitle className="text-white flex items-center gap-2">
-                <Clock3 className="w-5 h-5 text-amber-300" />
-                เหตุการณ์ตามวัน/เวลา
-              </CardTitle>
-              <CardDescription>
-                Mockup Timeline สำหรับวันที่เลือก
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ScrollArea className="h-[320px] pr-3">
+              <ScrollArea className="h-[350px] px-5 py-3 bg-slate-950/30">
                 {selectedDayEvents.length === 0 ? (
-                  <div className="h-[280px] rounded-xl border border-dashed border-slate-700 flex items-center justify-center text-slate-500">
+                  <div className="h-[300px] rounded-xl border border-dashed border-slate-700 flex items-center justify-center text-slate-500">
                     ยังไม่มีเหตุการณ์ในวันที่เลือก
                   </div>
                 ) : (
-                  <div className="space-y-3">
-                    {selectedDayEvents.map((event) => (
-                      <div
-                        key={event.id}
-                        className="rounded-xl border border-slate-700 bg-gradient-to-r from-slate-900 to-slate-900/60 p-4"
-                      >
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge className="bg-rose-500/20 text-rose-200 border-rose-400/40">ล้ม</Badge>
-                          {event.personLabel && (
-                            <Badge className="bg-amber-500/20 text-amber-100 border-amber-300/40">
-                              {event.personLabel}
-                            </Badge>
-                          )}
-                          <Badge className="bg-cyan-500/20 text-cyan-100 border-cyan-300/40">
-                            {(event.confidence * 100).toFixed(1)}%
-                          </Badge>
+                  <div className="divide-y divide-slate-800/70">
+                    {Array.from({ length: 24 }, (_, hour) => {
+                      const events = selectedDayByHour.get(hour) ?? [];
+                      return (
+                        <div key={hour} className="grid grid-cols-[54px,1fr] min-h-10">
+                          <div className="border-r border-slate-800/70 pr-3 pt-2 text-right text-[11px] text-slate-500 font-mono">
+                            {hour.toString().padStart(2, '0')}:00
+                          </div>
+                          <div className="pl-3 py-2 space-y-1.5">
+                            {events.length === 0 ? (
+                              <div className="h-2 w-2 rounded-full bg-slate-700/80 mt-1" />
+                            ) : (
+                              events.map((event) => {
+                                const severity = getEventSeverity(event);
+                                return (
+                                  <div
+                                    key={event.id}
+                                    className={cn(
+                                      'inline-flex max-w-full items-center gap-2 rounded-md border px-2.5 py-1 text-xs',
+                                      severity === 'high' && 'bg-rose-500/12 border-rose-400/35 text-rose-100',
+                                      severity === 'medium' && 'bg-amber-500/12 border-amber-400/35 text-amber-100',
+                                      severity === 'low' && 'bg-yellow-500/12 border-yellow-400/35 text-yellow-100'
+                                    )}
+                                  >
+                                    <span className="font-mono text-[11px] opacity-90">{formatTime(event.timestamp)}</span>
+                                    <span className="font-semibold">ล้ม</span>
+                                    {event.personLabel && <span>{event.personLabel}</span>}
+                                    <span className="inline-flex items-center gap-1 opacity-80">
+                                      <MapPin className="w-3 h-3" />
+                                      {event.location || 'ไม่ระบุ'}
+                                    </span>
+                                    <span className="ml-auto font-mono text-[10px] opacity-75">
+                                      {(event.confidence * 100).toFixed(1)}%
+                                    </span>
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
                         </div>
-                        <div className="mt-3 grid sm:grid-cols-2 gap-2 text-sm text-slate-300">
-                          <p className="flex items-center gap-2">
-                            <Clock3 className="w-4 h-4 text-slate-400" />
-                            {formatTime(event.timestamp)}
-                          </p>
-                          <p className="flex items-center gap-2">
-                            <MapPin className="w-4 h-4 text-slate-400" />
-                            {event.location || 'ไม่ระบุสถานที่'}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </ScrollArea>
-            </CardContent>
-          </Card>
-        </div>
 
-        <div className="grid xl:grid-cols-5 gap-6">
-          <Card className="xl:col-span-2 border-slate-700/70 bg-slate-900/50">
-            <CardHeader className="pb-4">
-              <CardTitle className="text-white flex items-center gap-2">
-                <BarChart3 className="w-5 h-5 text-emerald-300" />
-                สถิติย่อ
-              </CardTitle>
-              <CardDescription>
-                ภาพรวมสำหรับรายงาน
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-lg bg-slate-800/70 border border-slate-700 p-3">
-                  <p className="text-xs text-slate-400">รวมทั้งหมด</p>
-                  <p className="text-xl font-bold text-white">{totalFalls}</p>
-                </div>
-                <div className="rounded-lg bg-slate-800/70 border border-slate-700 p-3">
-                  <p className="text-xs text-slate-400">ความมั่นใจเฉลี่ย</p>
-                  <p className="text-xl font-bold text-white">{(averageConfidence * 100).toFixed(1)}%</p>
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-3">
-                <p className="text-xs text-slate-400">ช่วงเวลาเสี่ยงสูงสุด</p>
-                <p className="text-sm text-rose-300 font-medium mt-1">
-                  {peakHour ? `${formatHourRange(peakHour.hour)} (${peakHour.count} ครั้ง)` : 'ยังไม่มีข้อมูล'}
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <p className="text-xs text-slate-400">การกระจายตามชั่วโมง (0-23)</p>
-                <div className="grid grid-cols-12 gap-1.5 rounded-lg border border-slate-700 bg-slate-950/70 p-2">
-                  {hourlyData.map((item) => {
-                    const ratio = maxHourlyCount > 0 ? item.count / maxHourlyCount : 0;
-                    return (
-                      <div key={item.hour} className="flex flex-col items-center gap-1">
-                        <div className="h-16 w-full rounded-sm bg-slate-800 relative overflow-hidden">
-                          <div
-                            className="absolute bottom-0 left-0 right-0 rounded-sm bg-gradient-to-t from-emerald-400 to-cyan-300"
-                            style={{ height: `${Math.max(6, ratio * 100)}%`, opacity: item.count > 0 ? 0.9 : 0.25 }}
-                          />
-                        </div>
-                        <span className="text-[10px] text-slate-500">{item.hour}</span>
+              <div className="grid lg:grid-cols-2 min-h-[360px] border-t border-slate-700/70">
+                <div className="border-b lg:border-b-0 lg:border-r border-slate-700/70 bg-slate-900/40">
+                  <div className="px-5 py-3 border-b border-slate-700/70 flex items-center gap-2 text-white">
+                    <BarChart3 className="w-4 h-4 text-emerald-300" />
+                    <h4 className="text-sm font-semibold tracking-wide">สถิติ 30 วัน</h4>
+                  </div>
+                  <ScrollArea className="h-[320px] px-5 py-4">
+                    <div className="grid grid-cols-2 gap-3 mb-4">
+                      <div className="rounded-lg border border-slate-700 bg-slate-900/80 p-3">
+                        <p className="text-[11px] text-slate-500">รวมการล้ม</p>
+                        <p className="text-2xl font-bold text-rose-200">{totalFalls}</p>
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+                      <div className="rounded-lg border border-slate-700 bg-slate-900/80 p-3">
+                        <p className="text-[11px] text-slate-500">ความมั่นใจเฉลี่ย</p>
+                        <p className="text-2xl font-bold text-cyan-200">{(averageConfidence * 100).toFixed(1)}%</p>
+                      </div>
+                      <div className="rounded-lg border border-slate-700 bg-slate-900/80 p-3">
+                        <p className="text-[11px] text-slate-500">วันมีเหตุการณ์</p>
+                        <p className="text-2xl font-bold text-amber-200">{activeDays}</p>
+                      </div>
+                      <div className="rounded-lg border border-slate-700 bg-slate-900/80 p-3">
+                        <p className="text-[11px] text-slate-500">ตำแหน่งหลัก</p>
+                        <p className="text-sm font-semibold text-slate-200 mt-1 truncate">{topLocation}</p>
+                      </div>
+                    </div>
 
-          <Card className="xl:col-span-3 border-violet-500/20 bg-gradient-to-br from-slate-900/90 to-violet-950/30">
-            <CardHeader className="pb-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <CardTitle className="text-white flex items-center gap-2">
-                    <BrainCircuit className="w-5 h-5 text-violet-300" />
-                    LLM วิเคราะห์สถิติ
-                  </CardTitle>
-                  <CardDescription>
-                    สรุปเชิงวิเคราะห์สำหรับการพรีเซนต์ (Mock)
-                  </CardDescription>
-                </div>
-                <Badge className="bg-violet-500/20 text-violet-100 border-violet-300/30">
-                  <Sparkles className="w-3.5 h-3.5 mr-1" />
-                  Mock LLM
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex justify-end">
-                <Button
-                  variant="outline"
-                  onClick={() => void runAnalysis()}
-                  disabled={isAnalyzing}
-                  className="border-violet-400/40 bg-violet-500/10 text-violet-100 hover:bg-violet-500/20"
-                >
-                  {isAnalyzing ? (
-                    <>
-                      <RefreshCcw className="w-4 h-4 mr-2 animate-spin" />
-                      กำลังวิเคราะห์...
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="w-4 h-4 mr-2" />
-                      วิเคราะห์ใหม่
-                    </>
-                  )}
-                </Button>
-              </div>
+                    <div className="rounded-lg border border-slate-700 bg-slate-950/70 p-3 mb-4">
+                      <p className="text-[11px] text-slate-400 mb-2">ช่วงเวลาเสี่ยงสูงสุด</p>
+                      <p className="text-sm text-rose-200 font-medium">
+                        {peakHour ? `${formatHourRange(peakHour.hour)} (${peakHour.count} ครั้ง)` : 'ยังไม่มีข้อมูล'}
+                      </p>
+                    </div>
 
-              {insight ? (
-                <div className="space-y-4">
-                  <div className="rounded-xl border border-violet-400/25 bg-violet-500/10 p-4">
-                    <p className="text-violet-100 leading-relaxed">{insight.summary}</p>
+                    <div className="space-y-2">
+                      <p className="text-[11px] text-slate-400">Heatmap รายชั่วโมง</p>
+                      <div
+                        className="grid gap-1 rounded-lg border border-slate-700 bg-slate-950/70 p-2"
+                        style={{ gridTemplateColumns: 'repeat(24, minmax(0, 1fr))' }}
+                      >
+                        {hourlyData.map((item) => {
+                          const ratio = maxHourlyCount > 0 ? item.count / maxHourlyCount : 0;
+                          return (
+                            <div
+                              key={item.hour}
+                              className={cn(
+                                'h-8 rounded-sm transition-transform hover:scale-y-110 origin-bottom',
+                                ratio === 0 && 'bg-slate-800/80',
+                                ratio > 0 && ratio <= 0.35 && 'bg-cyan-500/45',
+                                ratio > 0.35 && ratio <= 0.7 && 'bg-amber-500/65',
+                                ratio > 0.7 && 'bg-rose-500/80'
+                              )}
+                              title={`${item.hour.toString().padStart(2, '0')}:00 - ${item.count} ครั้ง`}
+                            />
+                          );
+                        })}
+                      </div>
+                      <div className="flex justify-between text-[10px] text-slate-500 font-mono px-1">
+                        <span>00</span>
+                        <span>06</span>
+                        <span>12</span>
+                        <span>18</span>
+                        <span>23</span>
+                      </div>
+                    </div>
+
+                    <div className="mt-4">
+                      <p className="text-[11px] text-slate-400 mb-2">แนวโน้ม 4 สัปดาห์ล่าสุด</p>
+                      <div className="flex items-end gap-2 h-16">
+                        {weeklyData.map((item) => {
+                          const ratio = maxWeeklyCount > 0 ? item.count / maxWeeklyCount : 0;
+                          return (
+                            <div key={item.label} className="flex-1 flex flex-col items-center gap-1">
+                              <div className="w-full h-12 rounded-t-sm bg-slate-800/80 flex items-end">
+                                <div
+                                  className="w-full rounded-t-sm bg-gradient-to-t from-cyan-400 to-emerald-300"
+                                  style={{ height: `${Math.max(6, ratio * 100)}%` }}
+                                />
+                              </div>
+                              <span className="text-[10px] text-slate-500 font-mono">{item.label}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </ScrollArea>
+                </div>
+
+                <div className="bg-gradient-to-br from-slate-900/80 to-violet-950/25">
+                  <div className="px-5 py-3 border-b border-slate-700/70 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 text-white">
+                      <BrainCircuit className="w-4 h-4 text-violet-300" />
+                      <h4 className="text-sm font-semibold tracking-wide">LLM วิเคราะห์สถิติ</h4>
+                    </div>
+                    <Button
+                      variant="outline"
+                      onClick={() => void runAnalysis()}
+                      disabled={isAnalyzing}
+                      className="border-violet-400/40 bg-violet-500/10 text-violet-100 hover:bg-violet-500/20"
+                    >
+                      {isAnalyzing ? (
+                        <>
+                          <RefreshCcw className="w-4 h-4 mr-2 animate-spin" />
+                          กำลังวิเคราะห์...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-4 h-4 mr-2" />
+                          วิเคราะห์ใหม่
+                        </>
+                      )}
+                    </Button>
                   </div>
 
-                  <div>
-                    <h4 className="text-sm font-semibold text-white mb-2 flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4 text-amber-300" />
-                      ประเด็นสำคัญ
-                    </h4>
-                    <ul className="space-y-2 text-sm text-slate-300">
-                      {insight.highlights.map((item) => (
-                        <li key={item} className="rounded-lg border border-slate-700 bg-slate-900/60 p-3">
-                          {item}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+                  <ScrollArea className="h-[320px] px-5 py-4">
+                    {isAnalyzing && (
+                      <div className="rounded-xl border border-violet-400/30 bg-violet-500/8 px-4 py-6 text-center text-violet-200">
+                        <RefreshCcw className="w-5 h-5 animate-spin mx-auto mb-2" />
+                        กำลังประมวลผลสรุปเชิงวิเคราะห์...
+                      </div>
+                    )}
 
-                  <div>
-                    <h4 className="text-sm font-semibold text-white mb-2">ข้อเสนอแนะ</h4>
-                    <ul className="space-y-2 text-sm text-slate-300">
-                      {insight.recommendations.map((item) => (
-                        <li key={item} className="rounded-lg border border-slate-700 bg-slate-900/60 p-3">
-                          {item}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+                    {!isAnalyzing && insight && (
+                      <div className="space-y-4">
+                        <div className="flex justify-end">
+                          <Badge className="bg-violet-500/20 text-violet-100 border-violet-300/30">
+                            <Sparkles className="w-3.5 h-3.5 mr-1" />
+                            Mock LLM
+                          </Badge>
+                        </div>
 
-                  <p className="text-xs text-slate-500">
-                    สร้างเมื่อ {insight.generatedAt} | โมเดล: {insight.modelLabel}
-                  </p>
+                        <div className="rounded-xl border border-violet-400/25 bg-violet-500/10 p-4">
+                          <p className="text-violet-100 leading-relaxed">{insight.summary}</p>
+                        </div>
+
+                        <div>
+                          <h5 className="text-sm font-semibold text-white mb-2 flex items-center gap-2">
+                            <AlertTriangle className="w-4 h-4 text-amber-300" />
+                            ประเด็นสำคัญ
+                          </h5>
+                          <ul className="space-y-2 text-sm text-slate-300">
+                            {insight.highlights.map((item) => (
+                              <li key={item} className="rounded-lg border border-slate-700 bg-slate-900/60 p-3">
+                                {item}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+
+                        <div>
+                          <h5 className="text-sm font-semibold text-white mb-2">ข้อเสนอแนะ</h5>
+                          <ul className="space-y-2 text-sm text-slate-300">
+                            {insight.recommendations.map((item) => (
+                              <li key={item} className="rounded-lg border border-slate-700 bg-slate-900/60 p-3">
+                                {item}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+
+                        <p className="text-xs text-slate-500">
+                          สร้างเมื่อ {insight.generatedAt} | โมเดล: {insight.modelLabel}
+                        </p>
+                      </div>
+                    )}
+
+                    {!isAnalyzing && !insight && (
+                      <div className="h-[240px] rounded-xl border border-dashed border-slate-700 flex flex-col items-center justify-center gap-3 text-slate-500 text-center">
+                        <BrainCircuit className="w-8 h-8 text-violet-300/70" />
+                        <p>กด “วิเคราะห์ใหม่” เพื่อให้ระบบสรุปเชิงสถิติ</p>
+                      </div>
+                    )}
+                  </ScrollArea>
                 </div>
-              ) : (
-                <div className="rounded-xl border border-dashed border-slate-700 p-10 text-center text-slate-500">
-                  กำลังเตรียมผลวิเคราะห์...
-                </div>
-              )}
-            </CardContent>
-          </Card>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </section>
