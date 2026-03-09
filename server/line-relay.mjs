@@ -318,6 +318,7 @@ const getOrCreateMlflowExperimentId = async () => {
 const logWebhookEventToMlflow = async ({
   message,
   imageDataUrl,
+  imageMessageIncluded,
   metadata,
   lineSuccess,
   lineStatusCode,
@@ -361,7 +362,8 @@ const logWebhookEventToMlflow = async ({
 
     const metrics = [
       { key: 'line_push_success', value: lineSuccess ? 1 : 0, timestamp: now, step: 0 },
-      { key: 'has_image', value: imageDataUrl ? 1 : 0, timestamp: now, step: 0 }
+      { key: 'has_image', value: imageDataUrl ? 1 : 0, timestamp: now, step: 0 },
+      { key: 'line_image_message', value: imageMessageIncluded ? 1 : 0, timestamp: now, step: 0 }
     ];
     if (confidencePct !== null && Number.isFinite(confidencePct)) {
       metrics.push({
@@ -434,6 +436,8 @@ const handleLineWebhook = async (req, res) => {
     sendJson(res, 400, { success: false, message: error.message || 'Invalid image payload' });
     return;
   }
+  const hasImagePayload = Boolean(imageDataUrl);
+  const hasImageMessage = messages.some((item) => item && item.type === 'image');
 
   try {
     const lineRes = await fetch(LINE_PUSH_URL, {
@@ -453,6 +457,7 @@ const handleLineWebhook = async (req, res) => {
       await logWebhookEventToMlflow({
         message,
         imageDataUrl,
+        imageMessageIncluded: hasImageMessage,
         metadata,
         lineSuccess: false,
         lineStatusCode: lineRes.status,
@@ -460,7 +465,9 @@ const handleLineWebhook = async (req, res) => {
       });
       sendJson(res, lineRes.status, {
         success: false,
-        message: `LINE API error: ${errorText}`
+        message: `LINE API error: ${errorText}`,
+        receivedImage: hasImagePayload,
+        imageMessageIncluded: hasImageMessage
       });
       return;
     }
@@ -468,6 +475,7 @@ const handleLineWebhook = async (req, res) => {
     await logWebhookEventToMlflow({
       message,
       imageDataUrl,
+      imageMessageIncluded: hasImageMessage,
       metadata,
       lineSuccess: true,
       lineStatusCode: lineRes.status,
@@ -476,12 +484,15 @@ const handleLineWebhook = async (req, res) => {
 
     sendJson(res, 200, {
       success: true,
-      message: 'Message sent to LINE successfully'
+      message: 'Message sent to LINE successfully',
+      receivedImage: hasImagePayload,
+      imageMessageIncluded: hasImageMessage
     });
   } catch (error) {
     await logWebhookEventToMlflow({
       message,
       imageDataUrl,
+      imageMessageIncluded: hasImageMessage,
       metadata,
       lineSuccess: false,
       lineStatusCode: 500,
@@ -489,7 +500,9 @@ const handleLineWebhook = async (req, res) => {
     });
     sendJson(res, 500, {
       success: false,
-      message: `Relay error: ${error.message || 'Unknown error'}`
+      message: `Relay error: ${error.message || 'Unknown error'}`,
+      receivedImage: hasImagePayload,
+      imageMessageIncluded: hasImageMessage
     });
   }
 };

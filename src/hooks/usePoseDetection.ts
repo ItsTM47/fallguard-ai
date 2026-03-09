@@ -467,16 +467,44 @@ export const usePoseDetection = (
   // Capture screenshot from video
   const captureScreenshot = useCallback((): string => {
     const video = videoRef.current;
-    if (!video) return '';
-    
+    const overlayCanvas = canvasRef.current;
+    const sourceWidth = video?.videoWidth || overlayCanvas?.width || 0;
+    const sourceHeight = video?.videoHeight || overlayCanvas?.height || 0;
+    if (!sourceWidth || !sourceHeight) return '';
+
+    const maxWidth = 1280;
+    const scale = sourceWidth > maxWidth ? maxWidth / sourceWidth : 1;
+    const outputWidth = Math.max(1, Math.round(sourceWidth * scale));
+    const outputHeight = Math.max(1, Math.round(sourceHeight * scale));
+
     const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    canvas.width = outputWidth;
+    canvas.height = outputHeight;
     const ctx = canvas.getContext('2d');
     if (!ctx) return '';
-    
-    ctx.drawImage(video, 0, 0);
-    return canvas.toDataURL('image/jpeg', 0.8);
+
+    try {
+      const canDrawVideo = !!video
+        && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+        && video.videoWidth > 0
+        && video.videoHeight > 0;
+
+      if (canDrawVideo && video) {
+        ctx.drawImage(video, 0, 0, outputWidth, outputHeight);
+      } else {
+        ctx.fillStyle = '#020617';
+        ctx.fillRect(0, 0, outputWidth, outputHeight);
+      }
+
+      if (overlayCanvas && overlayCanvas.width > 0 && overlayCanvas.height > 0) {
+        ctx.drawImage(overlayCanvas, 0, 0, outputWidth, outputHeight);
+      }
+
+      return canvas.toDataURL('image/jpeg', 0.78);
+    } catch (error) {
+      console.error('Failed to capture screenshot:', error);
+      return '';
+    }
   }, []);
   
   // Main detection loop

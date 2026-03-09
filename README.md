@@ -23,6 +23,23 @@ npm run dev:relay
 npm run dev
 ```
 
+Or run everything (web + relay + ngrok) in one command:
+
+```bash
+npm run dev:all
+```
+
+Or run everything with MLflow too (starts Docker `mlflow` service first):
+
+```bash
+npm run dev:all:with-mlflow
+```
+
+- If `NGROK_DOMAIN` is set in `.env.local`, it will run `ngrok http --domain <NGROK_DOMAIN> <LINE_RELAY_PORT>`.
+- If `NGROK_DOMAIN` is empty, it will run `ngrok http <LINE_RELAY_PORT>`.
+- If `LINE_PUBLIC_BASE_URL` is empty and `NGROK_DOMAIN` is set, it is auto-filled as `https://<NGROK_DOMAIN>` for that session.
+- For `dev:all:with-mlflow`, relay uses `MLFLOW_TRACKING_URI=http://127.0.0.1:5001` when unset or set to `http://mlflow:5001`.
+
 4. In the app settings
 - Choose `Webhook`
 - Use URL: `http://localhost:8787/line-webhook` (or from `VITE_LINE_WEBHOOK_URL`)
@@ -37,6 +54,10 @@ LINE image message requires a public HTTPS image URL.
 1. Expose relay with tunnel (example using ngrok)
 ```bash
 ngrok http 8787
+```
+Or use one command:
+```bash
+npm run dev:all
 ```
 2. Set `LINE_PUBLIC_BASE_URL` in `.env.local` to your ngrok HTTPS URL
 3. Restart relay: `npm run dev:relay`

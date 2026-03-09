@@ -21,6 +21,7 @@ const AppSection: React.FC = () => {
   const [isSendingAlert, setIsSendingAlert] = useState(false);
   const [autoNotify, setAutoNotify] = useState(true);
   const screenshotRef = React.useRef<string>('');
+  const captureFallbackScreenshotRef = React.useRef<() => string>(() => '');
   
   // Handle fall detection
   const handleFallDetected = useCallback((result: FallDetectionResult, screenshot: string) => {
@@ -64,8 +65,16 @@ const AppSection: React.FC = () => {
       if (settings.useWebhook && settings.webhookUrl) {
         // Send via webhook
         const service = new LineWebhookService(settings.webhookUrl);
+        const primaryScreenshot = screenshotRef.current;
+        const imagePayload = primaryScreenshot.startsWith('data:image/')
+          ? primaryScreenshot
+          : (() => {
+            const fallbackScreenshot = captureFallbackScreenshotRef.current();
+            return fallbackScreenshot.startsWith('data:image/') ? fallbackScreenshot : undefined;
+          })();
+
         const message = `🚨 FALL DETECTED!\n\nตรวจพบการล้ม!\n\n👤 ผู้ล้ม: ${fallResult?.personLabel || fallResult?.personId || '-'}\n📅 เวลา: ${new Date().toLocaleString('th-TH')}\n🎯 ความมั่นใจ: ${((fallResult?.confidence || 0) * 100).toFixed(1)}%\n📍 ตำแหน่ง: ${settings.locationName}\n\nกรุณาตรวจสอบผู้สูงอายุทันที!`;
-        response = await service.sendViaWebhook(message, screenshotRef.current || undefined, {
+        response = await service.sendViaWebhook(message, imagePayload, {
           eventType: 'fall_alert',
           confidence: (fallResult?.confidence || 0) * 100,
           location: settings.locationName,
@@ -120,6 +129,48 @@ const AppSection: React.FC = () => {
     isPerformanceGuardActive,
     performanceHint
   } = usePoseDetection(handleFallDetected, settings.cooldownSeconds * 1000, settings.maxPoses);
+
+  captureFallbackScreenshotRef.current = () => {
+    const video = videoRef.current;
+    const overlayCanvas = canvasRef.current;
+    const sourceWidth = video?.videoWidth || overlayCanvas?.width || 0;
+    const sourceHeight = video?.videoHeight || overlayCanvas?.height || 0;
+    if (!sourceWidth || !sourceHeight) return '';
+
+    const maxWidth = 1280;
+    const scale = sourceWidth > maxWidth ? maxWidth / sourceWidth : 1;
+    const outputWidth = Math.max(1, Math.round(sourceWidth * scale));
+    const outputHeight = Math.max(1, Math.round(sourceHeight * scale));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = outputWidth;
+    canvas.height = outputHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return '';
+
+    try {
+      const canDrawVideo = !!video
+        && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+        && video.videoWidth > 0
+        && video.videoHeight > 0;
+
+      if (canDrawVideo && video) {
+        ctx.drawImage(video, 0, 0, outputWidth, outputHeight);
+      } else {
+        ctx.fillStyle = '#020617';
+        ctx.fillRect(0, 0, outputWidth, outputHeight);
+      }
+
+      if (overlayCanvas && overlayCanvas.width > 0 && overlayCanvas.height > 0) {
+        ctx.drawImage(overlayCanvas, 0, 0, outputWidth, outputHeight);
+      }
+
+      return canvas.toDataURL('image/jpeg', 0.78);
+    } catch (error) {
+      console.error('Failed to capture fallback screenshot:', error);
+      return '';
+    }
+  };
   
   const [isCameraActive, setIsCameraActive] = useState(false);
   
