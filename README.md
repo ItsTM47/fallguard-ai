@@ -70,6 +70,37 @@ Relay will create/log a run for each webhook event (test + fall alerts) with met
 - `has_image`
 - `confidence_pct` (when available)
 
+## Docker (Web + Relay + MLflow)
+
+Run everything with Docker Compose:
+
+```bash
+docker compose up --build -d
+```
+
+Services:
+- Web UI: `http://localhost:5173`
+- Relay API: `http://localhost:8787/health`
+- MLflow UI: `http://localhost:5001`
+
+Stop services:
+
+```bash
+docker compose down
+```
+
+View logs:
+
+```bash
+docker compose logs -f --tail=200
+```
+
+Notes:
+- Compose uses `.env.local` for relay secrets (`LINE_CHANNEL_ACCESS_TOKEN`, `LINE_TARGET_USER_ID`, etc.).
+- Inside Docker, relay talks to MLflow via `http://mlflow:5001` by default.
+- If host ports are occupied, override before running:
+  - `WEB_PORT=5174 RELAY_PORT=8788 MLFLOW_PORT=5002 docker compose up --build -d`
+
 ---
 
 # React + TypeScript + Vite

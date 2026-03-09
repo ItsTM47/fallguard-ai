@@ -8,7 +8,10 @@
     "dev:relay": "node server/line-relay.mjs",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "docker:up": "docker compose up --build -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f --tail=200"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
