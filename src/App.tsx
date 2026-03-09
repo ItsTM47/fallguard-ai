@@ -1,6 +1,7 @@
 import { Toaster } from '@/components/ui/sonner';
 import Hero from '@/sections/Hero';
 import AppSection from '@/sections/AppSection';
+import AnalyticsSection from '@/sections/AnalyticsSection';
 import HowItWorks from '@/sections/HowItWorks';
 import Features from '@/sections/Features';
 import Footer from '@/sections/Footer';
@@ -34,6 +35,9 @@ function App() {
       
       {/* Main App Section */}
       <AppSection />
+
+      {/* Analytics Mockup */}
+      <AnalyticsSection />
       
       {/* Footer */}
       <Footer />
