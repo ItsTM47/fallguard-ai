@@ -42,7 +42,7 @@ const CameraFeed: React.FC<CameraFeedProps> = ({
           ${getStatusBorderColor()}
           ${isActive ? 'shadow-lg' : ''}
         `}
-        style={{ aspectRatio: '4/3' }}
+        style={{ aspectRatio: '16/10' }}
       >
         {/* Video Element */}
         <video

@@ -128,7 +128,7 @@ const AnalyticsSection: React.FC = () => {
       <div className="absolute -top-24 left-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-cyan-400/10 blur-3xl" />
       <div className="absolute bottom-0 right-0 h-80 w-80 rounded-full bg-emerald-400/10 blur-3xl" />
 
-      <div className="relative z-10 max-w-6xl mx-auto space-y-6">
+      <div className="relative z-10 max-w-screen-2xl mx-auto space-y-6">
         <div className="text-center">
           <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/30 bg-cyan-400/10 px-4 py-1.5 text-cyan-300">
             <CalendarDays className="w-4 h-4" />

@@ -141,8 +141,8 @@ const AppSection: React.FC = () => {
   };
   
   return (
-    <section id="app-section" className="py-20 px-4">
-      <div className="max-w-6xl mx-auto">
+    <section id="app-section" className="py-16 md:py-20 px-4 md:px-6">
+      <div className="max-w-screen-2xl mx-auto">
         {/* Section Header */}
         <div className="text-center mb-12">
           <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
@@ -164,9 +164,9 @@ const AppSection: React.FC = () => {
         )}
         
         {/* Main App Grid */}
-        <div className="grid lg:grid-cols-5 gap-8">
+        <div className="grid lg:grid-cols-12 gap-8">
           {/* Camera Feed - Takes 3 columns */}
-          <div className="lg:col-span-3">
+          <div className="lg:col-span-8">
             <CameraFeed
               videoRef={videoRef}
               canvasRef={canvasRef}
@@ -180,7 +180,7 @@ const AppSection: React.FC = () => {
           </div>
           
           {/* Status Panel - Takes 2 columns */}
-          <div className="lg:col-span-2 space-y-6">
+          <div className="lg:col-span-4 space-y-6">
             {/* Status Indicator */}
             <StatusIndicator
               status={status}
