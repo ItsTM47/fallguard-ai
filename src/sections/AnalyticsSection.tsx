@@ -250,12 +250,12 @@ const AnalyticsSection: React.FC = () => {
       const dotCount = Math.min(dayCount, 3);
 
       const defaultTone = riskLevel === 'high'
-        ? 'bg-rose-500/18 border-rose-400/45 text-rose-100 hover:bg-rose-500/28'
+        ? 'bg-rose-500/18 border-rose-400/45 text-rose-100 hover:bg-rose-500/30'
         : riskLevel === 'medium'
-          ? 'bg-amber-500/18 border-amber-400/45 text-amber-100 hover:bg-amber-500/28'
+          ? 'bg-amber-500/18 border-amber-400/45 text-amber-100 hover:bg-amber-500/30'
           : riskLevel === 'low'
-            ? 'bg-yellow-500/18 border-yellow-400/45 text-yellow-100 hover:bg-yellow-500/28'
-            : 'border-transparent text-slate-200 hover:bg-slate-800/70';
+            ? 'bg-yellow-500/18 border-yellow-400/45 text-yellow-100 hover:bg-yellow-500/30'
+            : 'border-slate-800/70 bg-slate-900/50 text-slate-200 hover:bg-slate-800/80';
 
       const dotTone = modifiers.selected
         ? 'bg-slate-700'
@@ -269,13 +269,13 @@ const AnalyticsSection: React.FC = () => {
         <button
           {...props}
           className={cn(
-            'relative h-9 w-full rounded-md border text-[13px] leading-none transition-colors duration-150',
-            'flex flex-col items-center justify-center gap-0.5 select-none',
+            'relative h-10 w-full rounded-lg border text-[13px] leading-none transition-all duration-200',
+            'flex flex-col items-center justify-center gap-0.5 select-none shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/70',
             !modifiers.selected && !modifiers.outside && defaultTone,
-            modifiers.outside && !modifiers.selected && 'text-slate-500/70 border-transparent hover:bg-slate-800/40',
-            modifiers.today && !modifiers.selected && 'ring-1 ring-cyan-400/80',
-            modifiers.selected && 'bg-slate-100 border-slate-200 text-slate-900 shadow-sm',
+            modifiers.outside && !modifiers.selected && 'text-slate-500/70 border-slate-800/40 bg-slate-900/25 hover:bg-slate-800/40',
+            modifiers.today && !modifiers.selected && 'ring-1 ring-cyan-400/80 bg-cyan-500/10 border-cyan-400/35 text-cyan-100',
+            modifiers.selected && 'bg-gradient-to-b from-slate-100 to-slate-200 border-slate-200 text-slate-900 shadow-[0_6px_18px_rgba(226,232,240,0.18)]',
             modifiers.disabled && 'opacity-40 pointer-events-none',
             className
           )}
@@ -313,18 +313,18 @@ const AnalyticsSection: React.FC = () => {
         <div className="text-center space-y-3">
           <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/35 bg-cyan-400/12 px-4 py-1.5 text-cyan-300">
             <CalendarDays className="w-4 h-4" />
-            <span className="text-sm font-medium">Analytics Mockup</span>
+            <span className="text-sm font-medium">แดชบอร์ดวิเคราะห์เหตุการณ์</span>
           </div>
           <h2 className="text-3xl md:text-4xl font-bold text-white">
-            ปฏิทินเหตุการณ์ล้ม + LLM วิเคราะห์สถิติ
+            ปฏิทินเหตุการณ์ล้มและวิเคราะห์สถิติ
           </h2>
           <p className="text-slate-400 max-w-3xl mx-auto">
-            โครงวางเหมือนแดชบอร์ดปฏิทินเต็มรูปแบบ: ปฏิทินด้านซ้าย, Timeline รายชั่วโมงด้านขวา และสรุปสถิติ+LLM ด้านล่าง
+            ติดตามเหตุการณ์รายวันผ่านปฏิทินและไทม์ไลน์รายชั่วโมง พร้อมสรุปสถิติและข้อเสนอแนะเชิงวิเคราะห์จาก AI
           </p>
         </div>
 
         <div className="rounded-3xl border border-slate-700/70 bg-slate-900/55 backdrop-blur-xl overflow-hidden">
-          <div className="grid xl:grid-cols-[340px,1fr] min-h-[840px]">
+          <div className="grid xl:grid-cols-[380px,1fr] min-h-[840px]">
             <aside className="bg-slate-900/65 border-b xl:border-b-0 xl:border-r border-slate-700/70 flex flex-col">
               <div className="px-5 py-4 border-b border-slate-700/70">
                 <div className="flex items-center gap-2 text-cyan-300">
@@ -334,8 +334,8 @@ const AnalyticsSection: React.FC = () => {
                 <p className="text-xs text-slate-400 mt-1">ดูความหนาแน่นของการล้มในแต่ละวัน</p>
               </div>
 
-              <div className="p-4 space-y-4">
-                <div className="rounded-2xl border border-slate-700 bg-slate-950/65 p-2">
+              <div className="p-5 space-y-4">
+                <div className="rounded-2xl border border-slate-700/80 bg-gradient-to-b from-slate-900/85 to-slate-950/80 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
                   <Calendar
                     mode="single"
                     month={calendarMonth}
@@ -348,16 +348,18 @@ const AnalyticsSection: React.FC = () => {
                     classNames={{
                       root: 'w-full',
                       months: 'w-full',
-                      month: 'w-full gap-3',
-                      nav: 'flex items-center justify-between px-1',
-                      button_previous: 'h-8 w-8 rounded-full border border-slate-600 bg-slate-900/80 text-slate-200 hover:bg-slate-800',
-                      button_next: 'h-8 w-8 rounded-full border border-slate-600 bg-slate-900/80 text-slate-200 hover:bg-slate-800',
-                      month_caption: 'flex h-8 items-center justify-center',
-                      caption_label: 'text-base font-semibold text-slate-100 tracking-wide',
-                      weekdays: 'grid grid-cols-7 gap-1',
+                      month: 'w-full gap-3.5',
+                      month_grid: 'w-full',
+                      weeks: 'w-full',
+                      nav: 'flex items-center justify-between px-1 py-0.5',
+                      button_previous: 'h-9 w-9 rounded-full border border-slate-600/80 bg-slate-900/75 text-slate-200 hover:bg-slate-800 shadow-sm',
+                      button_next: 'h-9 w-9 rounded-full border border-slate-600/80 bg-slate-900/75 text-slate-200 hover:bg-slate-800 shadow-sm',
+                      month_caption: 'flex h-9 items-center justify-center',
+                      caption_label: 'text-[1.12rem] font-semibold text-slate-100 tracking-[0.02em]',
+                      weekdays: 'grid grid-cols-7 gap-2 w-full',
                       weekday: 'text-center text-[11px] font-medium text-slate-400',
-                      week: 'grid grid-cols-7 gap-1 mt-1',
-                      day: 'aspect-square p-0',
+                      week: 'grid grid-cols-7 gap-2 mt-2 w-full',
+                      day: 'w-full p-0',
                       outside: '',
                       today: ''
                     }}
@@ -618,7 +620,7 @@ const AnalyticsSection: React.FC = () => {
                         <div className="flex justify-end">
                           <Badge className="bg-violet-500/20 text-violet-100 border-violet-300/30">
                             <Sparkles className="w-3.5 h-3.5 mr-1" />
-                            Mock LLM
+                            ระบบวิเคราะห์ AI
                           </Badge>
                         </div>
 
