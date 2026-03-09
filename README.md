@@ -38,7 +38,7 @@ npm run dev:all:with-mlflow
 - If `NGROK_DOMAIN` is set in `.env.local`, it will run `ngrok http --domain <NGROK_DOMAIN> <LINE_RELAY_PORT>`.
 - If `NGROK_DOMAIN` is empty, it will run `ngrok http <LINE_RELAY_PORT>`.
 - If `LINE_PUBLIC_BASE_URL` is empty and `NGROK_DOMAIN` is set, it is auto-filled as `https://<NGROK_DOMAIN>` for that session.
-- For `dev:all:with-mlflow`, relay uses `MLFLOW_TRACKING_URI=http://127.0.0.1:5001` when unset or set to `http://mlflow:5001`.
+- For `dev:all:with-mlflow`, relay uses `MLFLOW_TRACKING_URI=http://localhost:5001` when unset or set to `http://mlflow:5001`.
 
 4. In the app settings
 - Choose `Webhook`
@@ -78,7 +78,12 @@ Configure in `.env.local`:
 
 - `MLFLOW_TRACKING_URI=http://<mlflow-host>:5001` (or your hosted HTTPS endpoint)
 - `MLFLOW_EXPERIMENT_NAME=fallguard-alerts`
+- Optional image artifact:
+  - `MLFLOW_LOG_IMAGE_ARTIFACT=true`
+  - `MLFLOW_IMAGE_ARTIFACT_PATH=event-images`
+  - `MLFLOW_IMAGE_ARTIFACT_MAX_BYTES=2000000`
 - Optional auth: `MLFLOW_TRACKING_TOKEN` or `MLFLOW_TRACKING_USERNAME` + `MLFLOW_TRACKING_PASSWORD`
+- Optional run tags: `RELAY_APP_VERSION`, `RELAY_GIT_SHA`
 
 Then restart relay:
 
@@ -89,7 +94,15 @@ npm run dev:relay
 Relay will create/log a run for each webhook event (test + fall alerts) with metrics like:
 - `line_push_success`
 - `has_image`
+- `line_image_message`
+- `mlflow_image_artifact`
+- `image_payload_kb`
 - `confidence_pct` (when available)
+
+And params/tags such as:
+- `event_type`, `location`, `person_label`, `line_status_code`
+- `image_artifact_path`, `image_artifact_uploaded`, `image_artifact_error`
+- tags `app_version`, `git_sha`, `source`
 
 ## Docker (Web + Relay + MLflow)
 

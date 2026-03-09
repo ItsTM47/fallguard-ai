@@ -40,6 +40,12 @@ const loadEnvFile = (filename) => {
 loadEnvFile('.env.local');
 loadEnvFile('.env');
 
+const parseBooleanEnv = (value, defaultValue = false) => {
+  if (value === undefined || value === null || value === '') return defaultValue;
+  const normalized = String(value).trim().toLowerCase();
+  return ['1', 'true', 'yes', 'on'].includes(normalized);
+};
+
 const PORT = Number.parseInt(process.env.LINE_RELAY_PORT || '8787', 10);
 const MAX_BODY_BYTES = Number.parseInt(process.env.LINE_MAX_BODY_BYTES || '8000000', 10);
 const LINE_PUSH_URL = 'https://api.line.me/v2/bot/message/push';
@@ -60,6 +66,19 @@ const mlflowTrackingToken = process.env.MLFLOW_TRACKING_TOKEN || '';
 const mlflowTrackingUsername = process.env.MLFLOW_TRACKING_USERNAME || '';
 const mlflowTrackingPassword = process.env.MLFLOW_TRACKING_PASSWORD || '';
 const mlflowEnabled = !!mlflowTrackingUri;
+const relayAppVersion = process.env.RELAY_APP_VERSION || process.env.npm_package_version || 'dev';
+const relayGitSha = process.env.RELAY_GIT_SHA || process.env.GIT_SHA || '';
+const mlflowLogImageArtifact = parseBooleanEnv(process.env.MLFLOW_LOG_IMAGE_ARTIFACT, false);
+const mlflowImageArtifactPath = (process.env.MLFLOW_IMAGE_ARTIFACT_PATH || 'event-images').replace(/^\/+|\/+$/g, '');
+const mlflowImageArtifactMaxBytes = Number.parseInt(process.env.MLFLOW_IMAGE_ARTIFACT_MAX_BYTES || '2000000', 10);
+const publicBaseHost = (() => {
+  if (!publicBaseUrl) return '';
+  try {
+    return new URL(publicBaseUrl).host;
+  } catch {
+    return '';
+  }
+})();
 
 let mlflowExperimentIdCache = '';
 
@@ -175,7 +194,7 @@ const cleanupImageStorage = () => {
   }
 };
 
-const saveDataUrlImage = (dataUrl) => {
+const parseImageDataUrl = (dataUrl) => {
   const match = /^data:(image\/(?:jpeg|jpg|png|webp));base64,([A-Za-z0-9+/=]+)$/i.exec(dataUrl);
   if (!match) {
     throw new Error('Unsupported image format. Use jpeg/png/webp base64 data URL.');
@@ -184,6 +203,11 @@ const saveDataUrlImage = (dataUrl) => {
   const mime = match[1].toLowerCase();
   const base64Data = match[2];
   const ext = mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : 'jpg';
+  return { mime, base64Data, ext };
+};
+
+const saveDataUrlImage = (dataUrl) => {
+  const { base64Data, ext } = parseImageDataUrl(dataUrl);
   const filename = `${Date.now()}-${randomUUID()}.${ext}`;
   const absolutePath = path.join(imageStorageDir, filename);
 
@@ -231,11 +255,8 @@ const parseConfidencePct = (message) => {
   return Number.isFinite(value) ? value : null;
 };
 
-const getMlflowHeaders = () => {
-  const headers = {
-    'Content-Type': 'application/json'
-  };
-
+const getMlflowAuthHeaders = () => {
+  const headers = {};
   if (mlflowTrackingToken) {
     headers.Authorization = `Bearer ${mlflowTrackingToken}`;
     return headers;
@@ -251,10 +272,15 @@ const getMlflowHeaders = () => {
   return headers;
 };
 
+const getMlflowJsonHeaders = () => ({
+  'Content-Type': 'application/json',
+  ...getMlflowAuthHeaders()
+});
+
 const mlflowRequest = async (method, endpoint, payload) => {
   const response = await fetch(`${mlflowTrackingUri}${endpoint}`, {
     method,
-    headers: getMlflowHeaders(),
+    headers: getMlflowJsonHeaders(),
     body: payload ? JSON.stringify(payload) : undefined
   });
 
@@ -273,6 +299,93 @@ const mlflowRequest = async (method, endpoint, payload) => {
     status: response.status,
     data
   };
+};
+
+const encodeArtifactPath = (artifactPath) => artifactPath
+  .split('/')
+  .map((segment) => encodeURIComponent(segment))
+  .join('/');
+
+const uploadMlflowArtifactBinary = async (runId, artifactPath, contentType, dataBuffer, runIdKey = 'run_id') => {
+  const endpoint = `/api/2.0/mlflow-artifacts/artifacts/${encodeArtifactPath(artifactPath)}?${runIdKey}=${encodeURIComponent(runId)}`;
+  const response = await fetch(`${mlflowTrackingUri}${endpoint}`, {
+    method: 'PUT',
+    headers: {
+      ...getMlflowAuthHeaders(),
+      'Content-Type': contentType
+    },
+    body: dataBuffer
+  });
+
+  const raw = await response.text();
+  let data = {};
+  if (raw) {
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      data = { raw };
+    }
+  }
+
+  return {
+    ok: response.ok,
+    status: response.status,
+    data
+  };
+};
+
+const uploadImageArtifactToMlflow = async (runId, imageDataUrl) => {
+  const result = {
+    uploaded: false,
+    artifactPath: '',
+    bytes: 0,
+    skippedReason: '',
+    error: ''
+  };
+
+  if (!mlflowLogImageArtifact) {
+    result.skippedReason = 'disabled';
+    return result;
+  }
+  if (!imageDataUrl) {
+    result.skippedReason = 'no_image_payload';
+    return result;
+  }
+
+  let parsed;
+  try {
+    parsed = parseImageDataUrl(imageDataUrl);
+  } catch {
+    result.skippedReason = 'invalid_image_data_url';
+    return result;
+  }
+
+  const imageBuffer = Buffer.from(parsed.base64Data, 'base64');
+  result.bytes = imageBuffer.byteLength;
+
+  if (mlflowImageArtifactMaxBytes > 0 && result.bytes > mlflowImageArtifactMaxBytes) {
+    result.skippedReason = `size_exceeded_${mlflowImageArtifactMaxBytes}`;
+    return result;
+  }
+
+  const filename = `${Date.now()}-${randomUUID()}.${parsed.ext}`;
+  const artifactPath = mlflowImageArtifactPath ? `${mlflowImageArtifactPath}/${filename}` : filename;
+  result.artifactPath = artifactPath;
+
+  const primary = await uploadMlflowArtifactBinary(runId, artifactPath, parsed.mime, imageBuffer, 'run_id');
+  if (primary.ok) {
+    result.uploaded = true;
+    return result;
+  }
+
+  const fallback = await uploadMlflowArtifactBinary(runId, artifactPath, parsed.mime, imageBuffer, 'run_uuid');
+  if (fallback.ok) {
+    result.uploaded = true;
+    return result;
+  }
+
+  result.error = `artifact upload failed (${primary.status}/${fallback.status})`;
+  return result;
 };
 
 const getOrCreateMlflowExperimentId = async () => {
@@ -331,14 +444,23 @@ const logWebhookEventToMlflow = async ({
     if (!experimentId) return;
 
     const now = Date.now();
+    const eventType = toMlflowString(metadata?.eventType || (message.includes('FALL DETECTED') ? 'fall_alert' : 'webhook'));
+    const runTags = [
+      { key: 'source', value: 'fallguard-relay' },
+      { key: 'target_user', value: toMlflowString(targetUserId) },
+      { key: 'event_type', value: eventType },
+      { key: 'app_version', value: toMlflowString(relayAppVersion) },
+      { key: 'image_artifact_enabled', value: mlflowLogImageArtifact ? 'true' : 'false' }
+    ];
+    if (relayGitSha) {
+      runTags.push({ key: 'git_sha', value: toMlflowString(relayGitSha) });
+    }
+    const filteredRunTags = runTags.filter((item) => item.value !== '');
+
     const createRun = await mlflowRequest('POST', '/api/2.0/mlflow/runs/create', {
       experiment_id: experimentId,
       start_time: now,
-      tags: [
-        { key: 'source', value: 'fallguard-relay' },
-        { key: 'target_user', value: targetUserId },
-        { key: 'event_type', value: toMlflowString(metadata?.eventType || (message.includes('FALL DETECTED') ? 'fall_alert' : 'webhook')) }
-      ]
+      tags: filteredRunTags
     });
 
     const runId = createRun.data?.run?.info?.run_id;
@@ -350,21 +472,39 @@ const logWebhookEventToMlflow = async ({
     const confidencePct = Number.isFinite(confidenceFromMetadata)
       ? confidenceFromMetadata
       : parseConfidencePct(message);
+    const artifactResult = await uploadImageArtifactToMlflow(runId, imageDataUrl);
 
     const params = [
+      { key: 'event_type', value: eventType },
+      { key: 'metadata_timestamp', value: toMlflowString(metadata?.timestamp) },
       { key: 'location', value: toMlflowString(metadata?.location) },
       { key: 'person_id', value: toMlflowString(metadata?.personId) },
       { key: 'person_label', value: toMlflowString(metadata?.personLabel) },
       { key: 'line_status_code', value: toMlflowString(lineStatusCode) },
       { key: 'line_error', value: toMlflowString(lineErrorMessage) },
+      { key: 'public_base_host', value: toMlflowString(publicBaseHost) },
+      { key: 'public_base_https', value: isPublicBaseUrlHttps ? 'true' : 'false' },
+      { key: 'image_artifact_path', value: toMlflowString(artifactResult.artifactPath) },
+      { key: 'image_artifact_uploaded', value: artifactResult.uploaded ? 'true' : 'false' },
+      { key: 'image_artifact_skip_reason', value: toMlflowString(artifactResult.skippedReason) },
+      { key: 'image_artifact_error', value: toMlflowString(artifactResult.error) },
       { key: 'message_excerpt', value: toMlflowString(message.replace(/\s+/g, ' ').trim()) }
     ].filter((item) => item.value !== '');
 
     const metrics = [
       { key: 'line_push_success', value: lineSuccess ? 1 : 0, timestamp: now, step: 0 },
       { key: 'has_image', value: imageDataUrl ? 1 : 0, timestamp: now, step: 0 },
-      { key: 'line_image_message', value: imageMessageIncluded ? 1 : 0, timestamp: now, step: 0 }
+      { key: 'line_image_message', value: imageMessageIncluded ? 1 : 0, timestamp: now, step: 0 },
+      { key: 'mlflow_image_artifact', value: artifactResult.uploaded ? 1 : 0, timestamp: now, step: 0 }
     ];
+    if (artifactResult.bytes > 0) {
+      metrics.push({
+        key: 'image_payload_kb',
+        value: Number((artifactResult.bytes / 1024).toFixed(2)),
+        timestamp: now,
+        step: 0
+      });
+    }
     if (confidencePct !== null && Number.isFinite(confidencePct)) {
       metrics.push({
         key: 'confidence_pct',
@@ -526,7 +666,10 @@ const server = http.createServer(async (req, res) => {
       imageRetentionHours,
       imageMaxFiles,
       mlflowEnabled,
-      mlflowExperimentName: mlflowEnabled ? mlflowExperimentName : ''
+      mlflowExperimentName: mlflowEnabled ? mlflowExperimentName : '',
+      mlflowImageArtifactEnabled: mlflowEnabled ? mlflowLogImageArtifact : false,
+      mlflowImageArtifactPath: mlflowEnabled ? mlflowImageArtifactPath : '',
+      relayVersion: relayAppVersion
     });
     return;
   }
