@@ -1,0 +1,13 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "fallguard-postgres",
+      "Group": "FallGuard",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "fallguard",
+      "Username": "fallguard",
+      "SSLMode": "prefer"
+    }
+  }
+}

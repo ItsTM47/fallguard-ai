@@ -175,12 +175,18 @@ Notes:
 2. Login ด้วย:
    - Email: `admin@admin.com`
    - Password: `admin`
-3. Add New Server:
-   - Host: `postgres`
-   - Port: `5432`
-   - Database: `fallguard`
-   - Username: `fallguard`
-   - Password: `fallguard`
+3. ระบบจะ pre-load server ให้อัตโนมัติชื่อ `fallguard-postgres` (Host `postgres`, DB `fallguard`)
+4. ถ้าเคยรัน pgAdmin มาก่อนแล้วและยังไม่เห็น server นี้ ให้ import ซ้ำ 1 ครั้ง:
+
+```bash
+docker compose exec pgadmin sh -lc '/venv/bin/python3 /pgadmin4/setup.py load-servers /pgadmin4/servers.json --user "$PGADMIN_DEFAULT_EMAIL"'
+```
+
+5. เข้า Query Tool แล้วตรวจว่ามีข้อมูลจริง:
+
+```sql
+select count(*) from event_records;
+```
 
 ## PostgreSQL Event Store
 
