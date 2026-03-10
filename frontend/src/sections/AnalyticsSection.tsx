@@ -201,16 +201,32 @@ const AnalyticsSection: React.FC = () => {
     return counts;
   }, [history]);
 
-  const peakHour = useMemo<{ hour: number; count: number } | null>(() => {
-    const candidate = hourlyData.reduce<{ hour: number; count: number } | null>((best, item) => {
-      if (!best || item.count > best.count) {
-        return { hour: item.hour, count: item.count };
-      }
-      return best;
-    }, null);
-    if (!candidate || candidate.count === 0) return null;
-    return candidate;
+  const peakHours = useMemo<{ hours: number[]; count: number } | null>(() => {
+    const maxCount = hourlyData.reduce((max, item) => Math.max(max, item.count), 0);
+    if (maxCount === 0) return null;
+
+    const hours = hourlyData
+      .filter((item) => item.count === maxCount)
+      .map((item) => item.hour);
+
+    if (hours.length === 0) return null;
+    return { hours, count: maxCount };
   }, [hourlyData]);
+
+  const peakHourLabel = useMemo(() => {
+    if (!peakHours) return 'ยังไม่มีข้อมูล';
+
+    const ranges = peakHours.hours.map((hour) => formatHourRange(hour));
+    if (ranges.length === 1) {
+      return `${ranges[0]} (${peakHours.count} ครั้ง)`;
+    }
+
+    const maxVisibleRanges = 4;
+    const visible = ranges.slice(0, maxVisibleRanges).join(', ');
+    const remaining = ranges.length - maxVisibleRanges;
+    const more = remaining > 0 ? ` +${remaining} ช่วง` : '';
+    return `${visible}${more} (${peakHours.count} ครั้ง/ช่วง)`;
+  }, [peakHours]);
 
   const maxHourlyCount = useMemo(() => {
     return hourlyData.reduce((max, item) => Math.max(max, item.count), 0);
@@ -614,9 +630,7 @@ const AnalyticsSection: React.FC = () => {
 
                     <div className="rounded-lg border border-slate-700 bg-slate-950/70 p-3 mb-4">
                       <p className="text-[11px] text-slate-400 mb-2">ช่วงเวลาเสี่ยงสูงสุด</p>
-                      <p className="text-sm text-rose-200 font-medium">
-                        {peakHour ? `${formatHourRange(peakHour.hour)} (${peakHour.count} ครั้ง)` : 'ยังไม่มีข้อมูล'}
-                      </p>
+                      <p className="text-sm text-rose-200 font-medium">{peakHourLabel}</p>
                     </div>
 
                     <div className="space-y-2">
