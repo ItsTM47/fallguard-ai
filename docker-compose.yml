@@ -2,7 +2,7 @@ services:
   web:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: frontend/Dockerfile
       args:
         VITE_LINE_WEBHOOK_URL: ${VITE_LINE_WEBHOOK_URL:-http://localhost:8787/line-webhook}
         VITE_LINE_RELAY_SECRET: ${VITE_LINE_RELAY_SECRET:-}
@@ -18,17 +18,17 @@ services:
   relay:
     build:
       context: .
-      dockerfile: Dockerfile.relay
+      dockerfile: backend/Dockerfile
     env_file:
       - .env.local
     environment:
       LINE_RELAY_PORT: "8787"
-      LINE_IMAGE_STORAGE_DIR: /app/server/uploads
+      LINE_IMAGE_STORAGE_DIR: /app/backend/uploads
       MLFLOW_TRACKING_URI: ${DOCKER_MLFLOW_TRACKING_URI:-http://mlflow:5001}
     ports:
       - "${RELAY_PORT:-8787}:8787"
     volumes:
-      - relay-uploads:/app/server/uploads
+      - relay-uploads:/app/backend/uploads
     depends_on:
       mlflow:
         condition: service_started
@@ -37,7 +37,7 @@ services:
   mlflow:
     build:
       context: .
-      dockerfile: Dockerfile.mlflow
+      dockerfile: ai_service/Dockerfile
     environment:
       MLFLOW_PORT: "5001"
       MLFLOW_BACKEND_STORE_URI: ${MLFLOW_BACKEND_STORE_URI:-sqlite:////mlflow/mlflow.db}

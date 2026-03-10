@@ -1,0 +1,15 @@
+{
+  "files.exclude": {
+    "**/.DS_Store": true,
+    "**/node_modules": true,
+    "dist": true,
+    "mlruns": true,
+    "backend/uploads": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "dist": true,
+    "mlruns": true,
+    "backend/uploads": true
+  }
+}

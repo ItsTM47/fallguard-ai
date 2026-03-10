@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const projectRoot = path.resolve(__dirname, '..');
+const projectRoot = path.resolve(__dirname, '../..');
 
 const loadEnvFile = (filename) => {
   const filePath = path.join(projectRoot, filename);
@@ -54,7 +54,7 @@ const IMAGE_ROUTE_PREFIX = '/images/';
 const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN || '';
 const targetUserId = process.env.LINE_TARGET_USER_ID || '';
 const relaySecret = process.env.LINE_RELAY_SECRET || '';
-const imageStorageDir = path.resolve(projectRoot, process.env.LINE_IMAGE_STORAGE_DIR || 'server/uploads');
+const imageStorageDir = path.resolve(projectRoot, process.env.LINE_IMAGE_STORAGE_DIR || 'backend/uploads');
 const publicBaseUrl = (process.env.LINE_PUBLIC_BASE_URL || '').replace(/\/$/, '');
 const isPublicBaseUrlHttps = publicBaseUrl.startsWith('https://');
 const imageRetentionHours = Number.parseFloat(process.env.LINE_IMAGE_RETENTION_HOURS || '24');

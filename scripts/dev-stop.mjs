@@ -38,7 +38,7 @@ const killPort = (port) => {
 
 console.log('[dev:stop] stopping local dev processes...');
 killPids(collectPidsByPattern('node scripts/dev-all.mjs'));
-killPids(collectPidsByPattern('node server/line-relay.mjs'));
+killPids(collectPidsByPattern('node backend/api/line-relay.mjs'));
 killPids(collectPidsByPattern('vite'));
 killPids(collectPidsByPattern('ngrok http'));
 

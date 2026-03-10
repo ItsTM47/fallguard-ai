@@ -1,5 +1,15 @@
 # FallGuard (React + TypeScript + Vite)
 
+## Project Layout
+
+- `frontend/` React + Vite web app
+- `backend/api/` Node.js relay API for LINE + MLflow logging
+- `backend/uploads/` runtime uploaded snapshots
+- `ai/` placeholder for AI/model assets
+- `ai_service/` ML/analytics service container files
+- `scripts/` local orchestration scripts (`dev:all`, `dev:stop`)
+- `docker-compose.yml` full stack (web + relay + mlflow)
+
 ## LINE Alert Quick Setup (Webhook Relay)
 
 This project includes a local relay server for sending alerts to LINE Messaging API safely.
@@ -41,6 +51,18 @@ Stop everything (local + Docker):
 npm run dev:stop
 ```
 
+Clean generated local files:
+
+```bash
+npm run clean
+```
+
+Clean generated files + local MLflow runs:
+
+```bash
+npm run clean:all
+```
+
 - If `NGROK_DOMAIN` is set in `.env.local`, it will run `ngrok http --domain <NGROK_DOMAIN> <LINE_RELAY_PORT>`.
 - If `NGROK_DOMAIN` is empty, it will run `ngrok http <LINE_RELAY_PORT>`.
 - If `LINE_PUBLIC_BASE_URL` is empty and `NGROK_DOMAIN` is set, it is auto-filled as `https://<NGROK_DOMAIN>` for that session.
@@ -77,6 +99,7 @@ Configure in `.env.local`:
 - `LINE_IMAGE_RETENTION_HOURS=24` to delete images older than 24 hours (`0` disables age-based cleanup)
 - `LINE_IMAGE_CLEANUP_INTERVAL_SECONDS=300` to run cleanup every 5 minutes (`0` disables periodic cleanup)
 - `LINE_IMAGE_MAX_FILES=500` to keep only the newest 500 files (`0` disables max-files cleanup)
+- `LINE_IMAGE_STORAGE_DIR=backend/uploads` (recommended path in this repository layout)
 
 ### Connect MLflow
 

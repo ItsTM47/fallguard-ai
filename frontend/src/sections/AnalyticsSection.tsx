@@ -61,6 +61,7 @@ const AnalyticsSection: React.FC = () => {
   const [calendarMonth, setCalendarMonth] = useState<Date>(new Date());
   const [insight, setInsight] = useState<LlmInsightResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
 
   const reloadHistory = useCallback(() => {
     const data = FallHistoryService.getHistory().sort((a, b) => b.timestamp - a.timestamp);
@@ -134,6 +135,26 @@ const AnalyticsSection: React.FC = () => {
     });
     return summary;
   }, [selectedDayEvents]);
+
+  useEffect(() => {
+    if (selectedDayEvents.length === 0) {
+      setSelectedEventId(null);
+      return;
+    }
+
+    const hasSelected = selectedEventId
+      ? selectedDayEvents.some((event) => event.id === selectedEventId)
+      : false;
+
+    if (!hasSelected) {
+      setSelectedEventId(selectedDayEvents[0].id);
+    }
+  }, [selectedDayEvents, selectedEventId]);
+
+  const selectedEvent = useMemo(() => {
+    if (!selectedEventId) return null;
+    return selectedDayEvents.find((event) => event.id === selectedEventId) ?? null;
+  }, [selectedDayEvents, selectedEventId]);
 
   const monthRiskSummary = useMemo(() => {
     const summary = { low: 0, medium: 0, high: 0, total: 0, maxDaily: 0 };
@@ -462,14 +483,19 @@ const AnalyticsSection: React.FC = () => {
                             ) : (
                               events.map((event) => {
                                 const severity = getEventSeverity(event);
+                                const isSelected = selectedEvent?.id === event.id;
                                 return (
-                                  <div
+                                  <button
                                     key={event.id}
+                                    type="button"
+                                    onClick={() => setSelectedEventId(event.id)}
                                     className={cn(
-                                      'inline-flex max-w-full items-center gap-2 rounded-md border px-2.5 py-1 text-xs',
+                                      'inline-flex max-w-full items-center gap-2 rounded-md border px-2.5 py-1 text-xs transition-all duration-200 cursor-pointer',
                                       severity === 'high' && 'bg-rose-500/12 border-rose-400/35 text-rose-100',
                                       severity === 'medium' && 'bg-amber-500/12 border-amber-400/35 text-amber-100',
-                                      severity === 'low' && 'bg-yellow-500/12 border-yellow-400/35 text-yellow-100'
+                                      severity === 'low' && 'bg-yellow-500/12 border-yellow-400/35 text-yellow-100',
+                                      !isSelected && 'hover:bg-slate-700/40',
+                                      isSelected && 'ring-2 ring-cyan-300/80 shadow-[0_0_0_1px_rgba(34,211,238,0.35)]'
                                     )}
                                   >
                                     <span className="font-mono text-[11px] opacity-90">{formatTime(event.timestamp)}</span>
@@ -482,7 +508,7 @@ const AnalyticsSection: React.FC = () => {
                                     <span className="ml-auto font-mono text-[10px] opacity-75">
                                       {(event.confidence * 100).toFixed(1)}%
                                     </span>
-                                  </div>
+                                  </button>
                                 );
                               })
                             )}
@@ -493,6 +519,58 @@ const AnalyticsSection: React.FC = () => {
                   </div>
                 )}
               </ScrollArea>
+
+              <div className="border-t border-slate-700/70 bg-slate-950/45 p-4">
+                <div className="rounded-xl border border-slate-700/70 bg-slate-900/70 p-4">
+                  {selectedEvent ? (
+                    <div className="grid gap-4 lg:grid-cols-[1fr,220px]">
+                      <div className="space-y-3">
+                        <div className="text-xs text-cyan-300">รายละเอียดเหตุการณ์ที่เลือก</div>
+                        <div className="flex flex-wrap gap-2 text-xs">
+                          <Badge className="bg-slate-800 text-slate-200 border-slate-600 font-mono">
+                            {formatTime(selectedEvent.timestamp)}
+                          </Badge>
+                          <Badge className="bg-rose-500/15 text-rose-100 border-rose-400/35">
+                            ล้ม
+                          </Badge>
+                          <Badge className="bg-amber-500/15 text-amber-100 border-amber-400/35">
+                            {selectedEvent.personLabel || 'ไม่ระบุบุคคล'}
+                          </Badge>
+                          <Badge className="bg-cyan-500/15 text-cyan-100 border-cyan-400/35">
+                            <MapPin className="w-3 h-3 mr-1" />
+                            {selectedEvent.location || 'ไม่ระบุตำแหน่ง'}
+                          </Badge>
+                          <Badge className="bg-violet-500/15 text-violet-100 border-violet-400/35 font-mono">
+                            {(selectedEvent.confidence * 100).toFixed(1)}%
+                          </Badge>
+                        </div>
+                        {selectedEvent.reason && (
+                          <p className="text-sm text-slate-300">
+                            <span className="text-slate-500 mr-1">สาเหตุ:</span>
+                            {selectedEvent.reason}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="rounded-lg border border-slate-700/70 bg-slate-950/70 overflow-hidden min-h-36">
+                        {selectedEvent.screenshot ? (
+                          <img
+                            src={selectedEvent.screenshot}
+                            alt={`เหตุการณ์ล้ม ${formatTime(selectedEvent.timestamp)}`}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <div className="h-full w-full flex items-center justify-center text-xs text-slate-500 px-3 text-center">
+                            ยังไม่มีรูปเหตุการณ์นี้
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-sm text-slate-500">เลือกเหตุการณ์จากไทม์ไลน์เพื่อดูรายละเอียด</div>
+                  )}
+                </div>
+              </div>
 
               <div className="grid lg:grid-cols-2 min-h-[360px] border-t border-slate-700/70">
                 <div className="border-b lg:border-b-0 lg:border-r border-slate-700/70 bg-slate-900/40">
