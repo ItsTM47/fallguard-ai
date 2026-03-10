@@ -1,3 +1,5 @@
+import { getRelayBaseUrl } from '@/services/relayUrls';
+
 export interface FallEvent {
   id: string;
   timestamp: number;
@@ -56,18 +58,6 @@ const mergeRelayAndLocalHistory = (relayHistory: FallEvent[], localHistory: Fall
   localHistory.forEach(pushIfUnique);
 
   return merged.sort((a, b) => b.timestamp - a.timestamp);
-};
-
-const resolveRelayBaseUrl = (): string => {
-  const configuredWebhook = (import.meta.env.VITE_LINE_WEBHOOK_URL || '').trim();
-  if (!configuredWebhook) return window.location.origin;
-
-  try {
-    const url = new URL(configuredWebhook, window.location.origin);
-    return `${url.protocol}//${url.host}`;
-  } catch {
-    return window.location.origin;
-  }
 };
 
 const toSafeTimestamp = (value: unknown): number => {
@@ -156,7 +146,7 @@ export class FallHistoryService {
   }
 
   static async getHistoryFromRelay(limit = 1500): Promise<FallEvent[]> {
-    const relayBaseUrl = resolveRelayBaseUrl();
+    const relayBaseUrl = getRelayBaseUrl();
     if (!relayBaseUrl) {
       throw new Error('Relay base URL is not configured');
     }

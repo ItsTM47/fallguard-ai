@@ -1,3 +1,5 @@
+import { getRelayWebhookUrl, resolveClientReachableUrl } from '@/services/relayUrls';
+
 export interface LineMessagingResponse {
   success: boolean;
   message: string;
@@ -261,7 +263,8 @@ export class LineWebhookService {
   private relaySecret: string;
   
   constructor(webhookUrl: string) {
-    this.webhookUrl = webhookUrl;
+    const candidate = (webhookUrl || '').trim() || getRelayWebhookUrl();
+    this.webhookUrl = resolveClientReachableUrl(candidate, '/line-webhook');
     this.relaySecret = import.meta.env.VITE_LINE_RELAY_SECRET || '';
   }
   

@@ -1,4 +1,5 @@
 import type { FallEvent } from '@/services/fallHistory';
+import { getRelayAnalyticsUrl } from '@/services/relayUrls';
 
 export interface LlmInsightResult {
   summary: string;
@@ -27,7 +28,7 @@ const parseBoolean = (value: unknown, fallback = false): boolean => {
 };
 
 const llmAnalyticsEnabled = parseBoolean(import.meta.env.VITE_LLM_ANALYTICS_ENABLED, false);
-const llmAnalyticsUrl = (import.meta.env.VITE_LLM_ANALYTICS_URL || '').trim();
+const llmAnalyticsUrl = getRelayAnalyticsUrl();
 
 const startOfDayMs = (date: Date): number => {
   const d = new Date(date);
@@ -309,4 +310,3 @@ export const generateLlmInsight = async (
     };
   }
 };
-

@@ -1,3 +1,5 @@
+import { getRelayWebhookUrl, resolveClientReachableUrl } from '@/services/relayUrls';
+
 export interface FallGuardSettings {
   // LINE Messaging API Settings
   channelAccessToken: string;
@@ -16,12 +18,13 @@ export interface FallGuardSettings {
 }
 
 const SETTINGS_KEY = 'fallguard_settings';
+const defaultWebhookUrl = getRelayWebhookUrl();
 
 export const defaultSettings: FallGuardSettings = {
   channelAccessToken: '',
   userId: '',
-  webhookUrl: import.meta.env.VITE_LINE_WEBHOOK_URL || '',
-  useWebhook: !!import.meta.env.VITE_LINE_WEBHOOK_URL,
+  webhookUrl: defaultWebhookUrl,
+  useWebhook: !!defaultWebhookUrl,
   sensitivity: 7,
   cooldownSeconds: 10,
   maxPoses: 3,
@@ -45,7 +48,12 @@ export class SettingsService {
       const saved = localStorage.getItem(SETTINGS_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        return { ...defaultSettings, ...parsed };
+        const merged = { ...defaultSettings, ...parsed } as FallGuardSettings;
+        merged.webhookUrl = resolveClientReachableUrl(merged.webhookUrl || '', '/line-webhook');
+        if (merged.useWebhook && !merged.webhookUrl) {
+          merged.webhookUrl = defaultWebhookUrl;
+        }
+        return merged;
       }
     } catch (error) {
       console.error('Failed to load settings:', error);
