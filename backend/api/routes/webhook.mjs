@@ -25,6 +25,22 @@ const getRemoteIp = (req) => {
   return '';
 };
 
+const getRequestOrigin = (req) => {
+  const forwardedProto = req.headers['x-forwarded-proto'];
+  const proto = typeof forwardedProto === 'string' && forwardedProto.trim()
+    ? forwardedProto.split(',')[0].trim()
+    : (req.socket?.encrypted ? 'https' : 'http');
+
+  const forwardedHost = req.headers['x-forwarded-host'];
+  const hostHeader = typeof forwardedHost === 'string' && forwardedHost.trim()
+    ? forwardedHost.split(',')[0].trim()
+    : req.headers.host;
+  const host = Array.isArray(hostHeader) ? hostHeader[0] : hostHeader;
+
+  if (!host) return '';
+  return `${proto}://${host}`;
+};
+
 export const handleWebhookRoute = async (req, res, method, requestPath) => {
   if (method !== 'POST' || !WEBHOOK_PATHS.has(requestPath)) return false;
 
@@ -47,7 +63,7 @@ export const handleWebhookRoute = async (req, res, method, requestPath) => {
 
   let linePayload;
   try {
-    linePayload = buildLineMessages(message, imageDataUrl);
+    linePayload = buildLineMessages(message, imageDataUrl, getRequestOrigin(req));
   } catch (error) {
     sendJson(res, 400, { success: false, message: error.message || 'Invalid image payload' });
     return true;

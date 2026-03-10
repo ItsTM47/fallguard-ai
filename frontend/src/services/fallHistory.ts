@@ -29,6 +29,35 @@ interface RelayEventItem {
   screenshotUrl?: string;
 }
 
+const eventFingerprint = (event: FallEvent): string => {
+  const secondBucket = Math.floor(event.timestamp / 1000);
+  const person = (event.personLabel || '').trim().toLowerCase();
+  const location = (event.location || '').trim().toLowerCase();
+  const reason = (event.reason || '').trim().toLowerCase();
+  const confidence = Math.round((event.confidence || 0) * 1000);
+  return `${secondBucket}|${person}|${location}|${confidence}|${reason}`;
+};
+
+const mergeRelayAndLocalHistory = (relayHistory: FallEvent[], localHistory: FallEvent[]): FallEvent[] => {
+  const merged: FallEvent[] = [];
+  const seenIds = new Set<string>();
+  const seenFingerprints = new Set<string>();
+
+  const pushIfUnique = (event: FallEvent) => {
+    const id = String(event.id || '').trim();
+    const fingerprint = eventFingerprint(event);
+    if ((id && seenIds.has(id)) || seenFingerprints.has(fingerprint)) return;
+    if (id) seenIds.add(id);
+    seenFingerprints.add(fingerprint);
+    merged.push(event);
+  };
+
+  relayHistory.forEach(pushIfUnique);
+  localHistory.forEach(pushIfUnique);
+
+  return merged.sort((a, b) => b.timestamp - a.timestamp);
+};
+
 const resolveRelayBaseUrl = (): string => {
   const configuredWebhook = (import.meta.env.VITE_LINE_WEBHOOK_URL || '').trim();
   if (!configuredWebhook) return window.location.origin;
@@ -149,7 +178,9 @@ export class FallHistoryService {
 
   static async getHistoryPreferRelay(): Promise<FallEvent[]> {
     try {
-      return await this.getHistoryFromRelay();
+      const relayHistory = await this.getHistoryFromRelay();
+      const localHistory = this.getHistory();
+      return mergeRelayAndLocalHistory(relayHistory, localHistory);
     } catch (error) {
       console.warn('Fallback to local history:', error);
       return this.getHistory();

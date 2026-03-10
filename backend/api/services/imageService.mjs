@@ -3,9 +3,29 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { relayConfig } from '../config/env.mjs';
 
-const { imageStorageDir, imageRoutePrefix, publicBaseUrl, isPublicBaseUrlHttps, imageRetentionHours, imageMaxFiles } = relayConfig;
+const { imageStorageDir, imageRoutePrefix, imageRetentionHours, imageMaxFiles } = relayConfig;
 
 fs.mkdirSync(imageStorageDir, { recursive: true });
+
+const trimTrailingSlash = (value) => String(value || '').trim().replace(/\/$/, '');
+const isHttpsUrl = (value) => /^https:\/\//i.test(String(value || ''));
+const isLocalHostUrl = (value) => /^https:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(String(value || ''));
+
+const resolvePublicBaseUrl = (requestOrigin = '') => {
+  const requestBase = trimTrailingSlash(requestOrigin);
+  const configuredBase = trimTrailingSlash(relayConfig.publicBaseUrl);
+
+  // Prefer request origin when relay is accessed behind HTTPS reverse proxy.
+  if (isHttpsUrl(requestBase) && !isLocalHostUrl(requestBase)) {
+    return requestBase;
+  }
+
+  if (isHttpsUrl(configuredBase)) {
+    return configuredBase;
+  }
+
+  return '';
+};
 
 export const getContentTypeFromExt = (filename) => {
   const ext = path.extname(filename).toLowerCase();
@@ -41,21 +61,20 @@ export const saveDataUrlImage = (dataUrl) => {
   return filename;
 };
 
-export const buildLineMessages = (message, imageDataUrl) => {
+export const buildLineMessages = (message, imageDataUrl, requestOrigin = '') => {
   let textMessage = message;
   const messages = [];
   let savedImageFilename = '';
   let savedImageUrl = '';
+  const effectivePublicBaseUrl = resolvePublicBaseUrl(requestOrigin);
 
   if (imageDataUrl) {
     savedImageFilename = saveDataUrlImage(imageDataUrl);
 
-    if (!publicBaseUrl) {
-      textMessage += '\n\n(มีภาพเหตุการณ์ แต่ยังไม่ตั้ง LINE_PUBLIC_BASE_URL สำหรับส่งภาพ)';
-    } else if (!isPublicBaseUrlHttps) {
-      textMessage += '\n\n(มีภาพเหตุการณ์ แต่ LINE ต้องใช้ URL แบบ HTTPS)';
+    if (!effectivePublicBaseUrl) {
+      textMessage += '\n\n(มีภาพเหตุการณ์ แต่ยังไม่มี HTTPS URL สาธารณะสำหรับส่งภาพ LINE)';
     } else {
-      savedImageUrl = `${publicBaseUrl}${imageRoutePrefix}${savedImageFilename}`;
+      savedImageUrl = `${effectivePublicBaseUrl}${imageRoutePrefix}${savedImageFilename}`;
       messages.push({
         type: 'image',
         originalContentUrl: savedImageUrl,
