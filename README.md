@@ -2,6 +2,9 @@
 
 ระบบเฝ้าระวังการล้มแบบ real-time พร้อมแจ้งเตือน LINE, เก็บเหตุการณ์ลง PostgreSQL, และบันทึก telemetry ลง MLflow
 
+เอกสารติดตั้งแบบ step-by-step:
+- [SETUP_GUIDE.md](SETUP_GUIDE.md)
+
 ## สถาปัตยกรรมระบบ
 
 - `frontend/` เว็บแอป (React + Vite)
