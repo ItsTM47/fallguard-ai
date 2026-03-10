@@ -45,6 +45,19 @@ export const withTransaction = async (callback) => {
   }
 };
 
+export const withDatabaseClient = async (callback) => {
+  if (!pool) {
+    throw new Error('Database is disabled. Set DATABASE_ENABLED=true and DATABASE_URL.');
+  }
+
+  const client = await pool.connect();
+  try {
+    return await callback(client);
+  } finally {
+    client.release();
+  }
+};
+
 export const closeDatabase = async () => {
   if (!pool) return;
   await pool.end();
