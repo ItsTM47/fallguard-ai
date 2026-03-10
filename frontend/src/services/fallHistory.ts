@@ -17,6 +17,84 @@ export interface FallStats {
   recentFalls: FallEvent[];
 }
 
+interface RelayEventItem {
+  id: string;
+  timestamp: number;
+  eventType?: string;
+  location?: string;
+  personId?: string;
+  personLabel?: string;
+  confidencePct?: number | null;
+  reason?: string;
+  screenshotUrl?: string;
+}
+
+const resolveRelayBaseUrl = (): string => {
+  const configuredWebhook = (import.meta.env.VITE_LINE_WEBHOOK_URL || '').trim();
+  if (!configuredWebhook) return window.location.origin;
+
+  try {
+    const url = new URL(configuredWebhook, window.location.origin);
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return window.location.origin;
+  }
+};
+
+const toSafeTimestamp = (value: unknown): number => {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  return Date.now();
+};
+
+const normalizeScreenshotUrl = (value: unknown, relayBaseUrl: string): string => {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!raw) return '';
+  if (raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('data:image/')) {
+    return raw;
+  }
+  if (raw.startsWith('/') && relayBaseUrl) {
+    return `${relayBaseUrl}${raw}`;
+  }
+  return raw;
+};
+
+const mapRelayEventToFallEvent = (item: RelayEventItem, relayBaseUrl: string): FallEvent => {
+  const timestamp = toSafeTimestamp(item.timestamp);
+  const confidencePct = typeof item.confidencePct === 'number' && Number.isFinite(item.confidencePct)
+    ? item.confidencePct
+    : 0;
+  const confidence = Math.max(0, Math.min(confidencePct / 100, 1));
+  const dateObj = new Date(timestamp);
+  const location = typeof item.location === 'string' ? item.location : '';
+  const personLabel = typeof item.personLabel === 'string' && item.personLabel.trim()
+    ? item.personLabel.trim()
+    : (typeof item.personId === 'string' ? item.personId.trim() : '');
+  const reason = typeof item.reason === 'string' && item.reason.trim()
+    ? item.reason.trim()
+    : (item.eventType || 'fall_alert');
+
+  return {
+    id: item.id || `db_${timestamp}`,
+    timestamp,
+    date: dateObj.toLocaleDateString('th-TH', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    }),
+    time: dateObj.toLocaleTimeString('th-TH', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    }),
+    confidence,
+    reason,
+    location,
+    personLabel: personLabel || undefined,
+    screenshot: normalizeScreenshotUrl(item.screenshotUrl, relayBaseUrl) || undefined
+  };
+};
+
 const FALL_HISTORY_KEY = 'fallguard_history';
 const MAX_HISTORY_ITEMS = 100; // Keep last 100 falls
 
@@ -32,6 +110,36 @@ export class FallHistoryService {
       console.error('Failed to load fall history:', error);
     }
     return [];
+  }
+
+  static async getHistoryFromRelay(limit = 1500): Promise<FallEvent[]> {
+    const relayBaseUrl = resolveRelayBaseUrl();
+    if (!relayBaseUrl) {
+      throw new Error('Relay base URL is not configured');
+    }
+
+    const endpoint = `${relayBaseUrl}/api/events?days=120&limit=${Math.max(1, Math.min(limit, 5000))}`;
+    const response = await fetch(endpoint, { method: 'GET' });
+    if (!response.ok) {
+      throw new Error(`Relay events request failed (${response.status})`);
+    }
+
+    const payload = await response.json();
+    if (!payload?.success || !Array.isArray(payload?.events)) {
+      throw new Error('Invalid relay events response');
+    }
+
+    const mapped = payload.events.map((item: RelayEventItem) => mapRelayEventToFallEvent(item, relayBaseUrl));
+    return mapped.sort((a: FallEvent, b: FallEvent) => b.timestamp - a.timestamp);
+  }
+
+  static async getHistoryPreferRelay(): Promise<FallEvent[]> {
+    try {
+      return await this.getHistoryFromRelay();
+    } catch (error) {
+      console.warn('Fallback to local history:', error);
+      return this.getHistory();
+    }
   }
   
   // Add new fall event

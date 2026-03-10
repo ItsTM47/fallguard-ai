@@ -1,4 +1,36 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-fallguard}
+      POSTGRES_USER: ${POSTGRES_USER:-fallguard}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fallguard}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  pgadmin:
+    image: dpage/pgadmin4:8
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@admin.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin}
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   web:
     build:
       context: .
@@ -25,11 +57,17 @@ services:
       LINE_RELAY_PORT: "8787"
       LINE_IMAGE_STORAGE_DIR: /app/backend/uploads
       MLFLOW_TRACKING_URI: ${DOCKER_MLFLOW_TRACKING_URI:-http://mlflow:5001}
+      DATABASE_ENABLED: ${DATABASE_ENABLED:-true}
+      DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql://fallguard:fallguard@postgres:5432/fallguard}
+      DATABASE_SSL: ${DATABASE_SSL:-false}
+      DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-10}
     ports:
       - "${RELAY_PORT:-8787}:8787"
     volumes:
       - relay-uploads:/app/backend/uploads
     depends_on:
+      postgres:
+        condition: service_healthy
       mlflow:
         condition: service_started
     restart: unless-stopped
@@ -40,15 +78,20 @@ services:
       dockerfile: ai_service/Dockerfile
     environment:
       MLFLOW_PORT: "5001"
-      MLFLOW_BACKEND_STORE_URI: ${MLFLOW_BACKEND_STORE_URI:-sqlite:////mlflow/mlflow.db}
+      MLFLOW_BACKEND_STORE_URI: ${MLFLOW_BACKEND_STORE_URI:-postgresql+psycopg2://fallguard:fallguard@postgres:5432/fallguard}
       MLFLOW_DEFAULT_ARTIFACT_ROOT: ${MLFLOW_DEFAULT_ARTIFACT_ROOT:-/mlflow/artifacts}
       MLFLOW_ALLOWED_HOSTS: ${MLFLOW_ALLOWED_HOSTS:-*}
     ports:
       - "${MLFLOW_PORT:-5001}:5001"
     volumes:
       - mlflow-data:/mlflow
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
+  postgres-data:
+  pgadmin-data:
   relay-uploads:
   mlflow-data:

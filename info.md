@@ -26,6 +26,10 @@ Structure:
   frontend/src/main.tsx    Entry point for rendering the Webapp
   frontend/index.html      Entry point for the Webapp
   backend/api/             Relay backend (LINE webhook + MLflow logging)
+  backend/api/routes/      Route handlers (health/images/webhook)
+  backend/api/middleware/  Auth/error/upload middleware
+  backend/api/services/    LINE/MLflow/Image services
+  backend/api/utils/       Shared utility functions
   backend/database/        Database schema/migration/config files
   backend/services/        Reserved service layer for backend modules
   backend/models/          Reserved backend models/types

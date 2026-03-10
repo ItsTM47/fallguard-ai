@@ -57,19 +57,32 @@ const riskLegend = [
 
 const AnalyticsSection: React.FC = () => {
   const [history, setHistory] = useState<FallEvent[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
   const [calendarMonth, setCalendarMonth] = useState<Date>(new Date());
   const [insight, setInsight] = useState<LlmInsightResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
 
-  const reloadHistory = useCallback(() => {
-    const data = FallHistoryService.getHistory().sort((a, b) => b.timestamp - a.timestamp);
-    setHistory(data);
+  const reloadHistory = useCallback(async () => {
+    setIsLoadingHistory(true);
+    try {
+      const data = await FallHistoryService.getHistoryPreferRelay();
+      setHistory(data.sort((a, b) => b.timestamp - a.timestamp));
+    } finally {
+      setIsLoadingHistory(false);
+    }
   }, []);
 
   useEffect(() => {
-    reloadHistory();
+    void reloadHistory();
+  }, [reloadHistory]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void reloadHistory();
+    }, 30000);
+    return () => window.clearInterval(timer);
   }, [reloadHistory]);
 
   useEffect(() => {
@@ -261,7 +274,7 @@ const AnalyticsSection: React.FC = () => {
   }, [runAnalysis]);
 
   const handleRefresh = () => {
-    reloadHistory();
+    void reloadHistory();
   };
 
   const CalendarDayCell = useMemo(() => {
@@ -427,9 +440,10 @@ const AnalyticsSection: React.FC = () => {
                   variant="outline"
                   className="w-full border-slate-600 text-slate-200 bg-slate-900 hover:bg-slate-800"
                   onClick={handleRefresh}
+                  disabled={isLoadingHistory}
                 >
-                  <RefreshCcw className="w-4 h-4 mr-2" />
-                  รีเฟรชข้อมูล
+                  <RefreshCcw className={cn('w-4 h-4 mr-2', isLoadingHistory && 'animate-spin')} />
+                  {isLoadingHistory ? 'กำลังโหลดข้อมูล...' : 'รีเฟรชข้อมูล'}
                 </Button>
               </div>
             </aside>

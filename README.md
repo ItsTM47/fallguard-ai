@@ -145,6 +145,8 @@ Services:
 - Web UI: `http://localhost:5173`
 - Relay API: `http://localhost:8787/health`
 - MLflow UI: `http://localhost:5001`
+- Postgres: `localhost:5432`
+- pgAdmin: `http://localhost:5050` (default login: `admin@admin.com` / `admin`)
 
 Stop services:
 
@@ -161,9 +163,59 @@ docker compose logs -f --tail=200
 Notes:
 - Compose uses `.env.local` for relay secrets (`LINE_CHANNEL_ACCESS_TOKEN`, `LINE_TARGET_USER_ID`, etc.).
 - Inside Docker, relay talks to MLflow via `http://mlflow:5001` by default.
+- Inside Docker, relay talks to Postgres via `postgresql://fallguard:fallguard@postgres:5432/fallguard` by default.
 - MLflow host validation is enabled. Docker dev default uses `MLFLOW_ALLOWED_HOSTS=*` to avoid local host-header issues. For production, set a strict allow-list.
 - If host ports are occupied, override before running:
-  - `WEB_PORT=5174 RELAY_PORT=8788 MLFLOW_PORT=5002 docker compose up --build -d`
+  - `WEB_PORT=5174 RELAY_PORT=8788 MLFLOW_PORT=5002 POSTGRES_PORT=5433 PGADMIN_PORT=5051 docker compose up --build -d`
+
+### pgAdmin quick connect
+
+1. เปิด `http://localhost:5050`
+2. Login ด้วย:
+   - Email: `admin@admin.com`
+   - Password: `admin`
+3. Add New Server:
+   - Host: `postgres`
+   - Port: `5432`
+   - Database: `fallguard`
+   - Username: `fallguard`
+   - Password: `fallguard`
+
+## PostgreSQL Event Store
+
+Relay จะบันทึกข้อมูลลง Postgres อัตโนมัติทุกครั้งที่เรียก `/line-webhook`
+
+### ตารางที่จัดเก็บ
+
+- `event_records` ข้อมูลเหตุการณ์หลัก (เวลา, person, confidence, location, metadata)
+- `event_images` ข้อมูลไฟล์ภาพ (filename/path/public URL/hash/size)
+- `alert_deliveries` ผลการส่ง LINE (success/status/error/latency/request payload snapshot)
+- `mlflow_run_logs` ความสัมพันธ์กับ MLflow run + metrics/params/tags
+- `relay_audit_logs` audit ราย request (path/method/status/ip/body snapshot)
+- `sites`, `cameras`, `person_profiles`, `notification_targets` ข้อมูลอ้างอิง
+
+### API สำหรับหน้า Calendar/Timeline
+
+- `GET /api/events?days=120&limit=1500`
+- รองรับ query: `days`, `limit`, `from`, `to`, `eventType`
+- response มีข้อมูลที่หน้า analytics ใช้ตรงๆ เช่น `timestamp`, `personLabel`, `location`, `confidencePct`, `screenshotUrl`
+
+### การตั้งค่า
+
+กำหนดใน `.env.local`:
+
+- `DATABASE_ENABLED=true`
+- `DATABASE_URL=postgresql://fallguard:fallguard@localhost:5432/fallguard`
+- `DATABASE_SSL=false`
+- `DATABASE_POOL_MAX=10`
+
+รัน migration แบบ manual:
+
+```bash
+npm run db:migrate
+```
+
+หรือให้ relay apply schema ตอนเริ่มทำงานอัตโนมัติได้เลย.
 
 ---
 
