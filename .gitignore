@@ -9,7 +9,7 @@ dist/
 .env
 
 # runtime uploads / logs
-server/uploads/
+backend/uploads/
 *.log
 
 # local MLflow runs
@@ -17,6 +17,6 @@ mlruns/
 
 # OS/editor files
 .DS_Store
-.vscode/
+.vscode/*
+!.vscode/settings.json
 .idea/
-

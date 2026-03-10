@@ -18,14 +18,24 @@ Usage:
   import { Card, CardHeader, CardTitle } from '@/components/ui/card'
 
 Structure:
-  src/sections/        Page sections
-  src/hooks/           Custom hooks
-  src/types/           Type definitions
-  src/App.css          Styles specific to the Webapp
-  src/App.tsx          Root React component
-  src/index.css        Global styles
-  src/main.tsx         Entry point for rendering the Webapp
-  index.html           Entry point for the Webapp
+  frontend/src/sections/   Page sections
+  frontend/src/hooks/      Custom hooks
+  frontend/src/App.css     Styles specific to the Webapp
+  frontend/src/App.tsx     Root React component
+  frontend/src/index.css   Global styles
+  frontend/src/main.tsx    Entry point for rendering the Webapp
+  frontend/index.html      Entry point for the Webapp
+  backend/api/             Relay backend (LINE webhook + MLflow logging)
+  backend/api/routes/      Route handlers (health/images/webhook)
+  backend/api/middleware/  Auth/error/upload middleware
+  backend/api/services/    LINE/MLflow/Image services
+  backend/api/utils/       Shared utility functions
+  backend/database/        Database schema/migration/config files
+  backend/services/        Reserved service layer for backend modules
+  backend/models/          Reserved backend models/types
+  backend/uploads/         Uploaded images (runtime)
+  ai/                      Placeholder for AI/model assets
+  ai_service/              AI/ML service container files
   tailwind.config.js   Configures Tailwind's theme, plugins, etc.
   vite.config.ts       Main build and dev server settings for Vite
   postcss.config.js    Config file for CSS post-processing tools

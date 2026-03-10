@@ -1,0 +1,100 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-fallguard}
+      POSTGRES_USER: ${POSTGRES_USER:-fallguard}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fallguard}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  pgadmin:
+    image: dpage/pgadmin4:8
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@admin.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin}
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+      PGADMIN_SERVER_JSON_FILE: /pgadmin4/servers.json
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+      - ./docker/pgadmin/servers.json:/pgadmin4/servers.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_LINE_WEBHOOK_URL: ${VITE_LINE_WEBHOOK_URL:-http://localhost:8787/line-webhook}
+        VITE_LINE_RELAY_SECRET: ${VITE_LINE_RELAY_SECRET:-}
+        VITE_LLM_ANALYTICS_ENABLED: ${VITE_LLM_ANALYTICS_ENABLED:-true}
+        VITE_LLM_ANALYTICS_URL: ${VITE_LLM_ANALYTICS_URL:-http://localhost:8787/analytics/insight}
+    ports:
+      - "${WEB_PORT:-5173}:80"
+    depends_on:
+      relay:
+        condition: service_started
+    restart: unless-stopped
+
+  relay:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file:
+      - .env.local
+    environment:
+      LINE_RELAY_PORT: "8787"
+      TZ: ${LLM_TIMEZONE:-Asia/Bangkok}
+      LINE_IMAGE_STORAGE_DIR: /app/backend/uploads
+      MLFLOW_TRACKING_URI: ${DOCKER_MLFLOW_TRACKING_URI:-http://mlflow:5001}
+      DATABASE_ENABLED: ${DATABASE_ENABLED:-true}
+      DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql://fallguard:fallguard@postgres:5432/fallguard}
+      DATABASE_SSL: ${DATABASE_SSL:-false}
+      DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-10}
+    ports:
+      - "${RELAY_PORT:-8787}:8787"
+    volumes:
+      - relay-uploads:/app/backend/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mlflow:
+        condition: service_started
+    restart: unless-stopped
+
+  mlflow:
+    build:
+      context: .
+      dockerfile: ai_service/Dockerfile
+    environment:
+      MLFLOW_PORT: "5001"
+      MLFLOW_WORKERS: ${MLFLOW_WORKERS:-1}
+      MLFLOW_DISABLE_SECURITY_MIDDLEWARE: ${MLFLOW_DISABLE_SECURITY_MIDDLEWARE:-true}
+      MLFLOW_BACKEND_STORE_URI: ${MLFLOW_BACKEND_STORE_URI:-sqlite:////mlflow/mlflow.db}
+      MLFLOW_DEFAULT_ARTIFACT_ROOT: ${MLFLOW_DEFAULT_ARTIFACT_ROOT:-/mlflow/artifacts}
+      MLFLOW_ALLOWED_HOSTS: ${MLFLOW_ALLOWED_HOSTS:-*}
+      MLFLOW_CORS_ALLOWED_ORIGINS: ${MLFLOW_CORS_ALLOWED_ORIGINS:-*}
+    ports:
+      - "${MLFLOW_PORT:-5001}:5001"
+    volumes:
+      - mlflow-data:/mlflow
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  pgadmin-data:
+  relay-uploads:
+  mlflow-data:

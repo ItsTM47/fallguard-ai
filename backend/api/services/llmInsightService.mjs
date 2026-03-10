@@ -1,0 +1,499 @@
+import { relayConfig } from '../config/env.mjs';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_LLM_TIMEZONE = 'Asia/Bangkok';
+
+const normalizeConfidence = (value) => {
+  const num = Number.parseFloat(String(value ?? ''));
+  if (!Number.isFinite(num)) return 0;
+  if (num > 1 && num <= 100) return Math.max(0, Math.min(num / 100, 1));
+  return Math.max(0, Math.min(num, 1));
+};
+
+const normalizeString = (value, fallback = '', maxLen = 120) => {
+  if (typeof value !== 'string') return fallback;
+  const trimmed = value.trim();
+  if (!trimmed) return fallback;
+  return trimmed.slice(0, maxLen);
+};
+
+const normalizeTimestamp = (value) => {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  return Date.now();
+};
+
+const normalizeDate = (value) => {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+};
+
+const resolveTimeZone = (value, fallback = DEFAULT_LLM_TIMEZONE) => {
+  const candidate = normalizeString(value, '', 80);
+  if (!candidate) return fallback;
+
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: candidate }).format(new Date());
+    return candidate;
+  } catch {
+    return fallback;
+  }
+};
+
+const ANALYTICS_TIMEZONE = resolveTimeZone(relayConfig.llm.timezone);
+
+const DATE_PARTS_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  timeZone: ANALYTICS_TIMEZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit'
+});
+
+const HOUR_FORMATTER = new Intl.DateTimeFormat('en-GB', {
+  timeZone: ANALYTICS_TIMEZONE,
+  hour: '2-digit',
+  hour12: false
+});
+
+const THAI_DATE_FORMATTER = new Intl.DateTimeFormat('th-TH', {
+  timeZone: ANALYTICS_TIMEZONE,
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric'
+});
+
+const THAI_DATETIME_FORMATTER = new Intl.DateTimeFormat('th-TH', {
+  timeZone: ANALYTICS_TIMEZONE,
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false
+});
+
+const getDateKeyInAnalyticsTimezone = (timestamp) => {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return '';
+
+  const parts = DATE_PARTS_FORMATTER.formatToParts(date);
+  const year = parts.find((part) => part.type === 'year')?.value;
+  const month = parts.find((part) => part.type === 'month')?.value;
+  const day = parts.find((part) => part.type === 'day')?.value;
+  if (!year || !month || !day) return '';
+  return `${year}-${month}-${day}`;
+};
+
+const getHourInAnalyticsTimezone = (timestamp) => {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return 0;
+
+  const hourText = HOUR_FORMATTER.format(date);
+  const parsed = Number.parseInt(hourText, 10);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 23) return 0;
+  return parsed;
+};
+
+const formatDateKeyThai = (dateKey) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateKey || '').trim());
+  if (!match) return dateKey || '';
+
+  const year = Number.parseInt(match[1], 10);
+  const month = Number.parseInt(match[2], 10);
+  const day = Number.parseInt(match[3], 10);
+  const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  if (Number.isNaN(date.getTime())) return dateKey || '';
+  return THAI_DATE_FORMATTER.format(date);
+};
+
+const formatTimestampThai = (timestamp) => {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return '';
+  return THAI_DATETIME_FORMATTER.format(date);
+};
+
+const normalizeSelectedDateKey = (value) => {
+  if (!value && value !== 0) return '';
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+    const parsed = normalizeDate(trimmed);
+    return parsed ? getDateKeyInAnalyticsTimezone(parsed.getTime()) : '';
+  }
+
+  if (typeof value === 'number') {
+    return getDateKeyInAnalyticsTimezone(value);
+  }
+
+  const parsed = normalizeDate(value);
+  if (!parsed) return '';
+  return getDateKeyInAnalyticsTimezone(parsed.getTime());
+};
+
+const getMostFrequent = (items) => {
+  if (!Array.isArray(items) || items.length === 0) return null;
+  const counts = new Map();
+  items.forEach((item) => {
+    counts.set(item, (counts.get(item) ?? 0) + 1);
+  });
+
+  let topLabel = '';
+  let topCount = 0;
+  for (const [label, count] of counts.entries()) {
+    if (count > topCount) {
+      topLabel = label;
+      topCount = count;
+    }
+  }
+
+  if (!topLabel) return null;
+  return { label: topLabel, count: topCount };
+};
+
+const getMostRiskyHour = (events) => {
+  if (!Array.isArray(events) || events.length === 0) return null;
+  const hourCounts = new Map();
+  events.forEach((event) => {
+    const hour = getHourInAnalyticsTimezone(event.timestamp);
+    hourCounts.set(hour, (hourCounts.get(hour) ?? 0) + 1);
+  });
+
+  let riskyHour = -1;
+  let riskyCount = 0;
+  for (const [hour, count] of hourCounts.entries()) {
+    if (count > riskyCount) {
+      riskyHour = hour;
+      riskyCount = count;
+    }
+  }
+
+  if (riskyHour < 0) return null;
+  return { hour: riskyHour, count: riskyCount };
+};
+
+const sanitizeEvents = (history) => {
+  if (!Array.isArray(history)) return [];
+  const maxInputEvents = relayConfig.llm.maxInputEvents;
+
+  const cleaned = history
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null;
+      const timestamp = normalizeTimestamp(item.timestamp);
+      const location = normalizeString(item.location, 'ไม่ระบุสถานที่', 80);
+      const personLabel = normalizeString(item.personLabel, '', 60);
+      const reason = normalizeString(item.reason, 'fall_alert', 80);
+      const confidence = normalizeConfidence(item.confidence);
+
+      return {
+        timestamp,
+        confidence,
+        reason,
+        location,
+        personLabel
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.timestamp - a.timestamp);
+
+  return cleaned.slice(0, maxInputEvents);
+};
+
+const buildStats = (events, selectedDateKey) => {
+  const totalFalls = events.length;
+  const avgConfidence = totalFalls > 0
+    ? events.reduce((sum, event) => sum + event.confidence, 0) / totalFalls
+    : 0;
+  const riskyHour = getMostRiskyHour(events);
+  const topLocation = getMostFrequent(events.map((event) => event.location || 'ไม่ระบุสถานที่'));
+  const topPerson = getMostFrequent(
+    events.map((event) => (event.personLabel && event.personLabel.trim()) ? event.personLabel : 'ไม่ระบุบุคคล')
+  );
+
+  const now = Date.now();
+  const last7dCount = events.filter((event) => now - event.timestamp <= (7 * DAY_MS)).length;
+  const prev7dCount = events.filter((event) => {
+    const age = now - event.timestamp;
+    return age > (7 * DAY_MS) && age <= (14 * DAY_MS);
+  }).length;
+
+  const trendDiff = last7dCount - prev7dCount;
+  const trend = trendDiff > 0
+    ? `เพิ่มขึ้น ${trendDiff} เหตุการณ์ใน 7 วันล่าสุด`
+    : trendDiff < 0
+      ? `ลดลง ${Math.abs(trendDiff)} เหตุการณ์ใน 7 วันล่าสุด`
+      : 'แนวโน้มคงที่เมื่อเทียบกับช่วง 7 วันก่อนหน้า';
+
+  const selectedDayCount = selectedDateKey
+    ? events.filter((event) => getDateKeyInAnalyticsTimezone(event.timestamp) === selectedDateKey).length
+    : 0;
+
+  return {
+    totalFalls,
+    avgConfidencePct: Number((avgConfidence * 100).toFixed(1)),
+    last7dCount,
+    prev7dCount,
+    trend,
+    riskyHour,
+    topLocation,
+    topPerson,
+    timezone: ANALYTICS_TIMEZONE,
+    selectedDateKey,
+    selectedDateLabel: selectedDateKey ? formatDateKeyThai(selectedDateKey) : '',
+    selectedDayCount
+  };
+};
+
+const buildFallbackInsight = (events, selectedDateKey) => {
+  if (events.length === 0) {
+    return {
+      summary: 'ยังไม่มีข้อมูลการล้มเพียงพอสำหรับวิเคราะห์เชิงลึก',
+      highlights: [
+        'ยังไม่พบเหตุการณ์ที่บันทึกไว้ในช่วงเวลาที่เลือก',
+        'ระบบพร้อมวิเคราะห์ทันทีเมื่อเริ่มมีข้อมูลเหตุการณ์จริง',
+        'สามารถเริ่มจากการทดสอบ 3-5 เหตุการณ์ในช่วงเวลาต่างกัน'
+      ],
+      recommendations: [
+        'เก็บข้อมูลการล้มตัวอย่างให้ครบหลายช่วงเวลาในวันเดียวกัน',
+        'ระบุ location และ personLabel ให้สม่ำเสมอเพื่อวิเคราะห์ root cause',
+        'ตรวจสอบค่า confidence ที่สูงผิดปกติเพื่อปรับ threshold ลด false alarm'
+      ],
+      generatedAt: new Date().toLocaleString('th-TH', { timeZone: ANALYTICS_TIMEZONE }),
+      modelLabel: 'Heuristic Analytics v1'
+    };
+  }
+
+  const stats = buildStats(events, selectedDateKey);
+  const riskyHourText = stats.riskyHour
+    ? `${stats.riskyHour.hour.toString().padStart(2, '0')}:00-${((stats.riskyHour.hour + 1) % 24).toString().padStart(2, '0')}:00 (${stats.riskyHour.count} ครั้ง)`
+    : 'ยังไม่ชัดเจน';
+
+  const highlights = [
+    `ช่วงเวลาเสี่ยงหลัก: ${riskyHourText}`,
+    stats.topLocation
+      ? `ตำแหน่งเสี่ยงสูงสุด: ${stats.topLocation.label} (${stats.topLocation.count} ครั้ง)`
+      : 'ยังไม่พบตำแหน่งเสี่ยงเด่น',
+    stats.topPerson
+      ? `บุคคลที่พบเหตุการณ์บ่อย: ${stats.topPerson.label} (${stats.topPerson.count} ครั้ง)`
+      : 'ยังไม่พบข้อมูลบุคคลเด่น'
+  ];
+
+  if (selectedDateKey) {
+    highlights.push(`วันที่เลือก (${stats.selectedDateLabel || selectedDateKey}) มีเหตุการณ์ ${stats.selectedDayCount} ครั้ง`);
+  }
+
+  return {
+    summary: `พบเหตุการณ์ ${stats.totalFalls} ครั้ง | ความมั่นใจเฉลี่ย ${stats.avgConfidencePct}% | ${stats.trend}`,
+    highlights,
+    recommendations: [
+      'เพิ่มการเฝ้าระวังเชิงรุกในช่วงเวลาที่เกิดเหตุซ้ำบ่อยที่สุด',
+      'ทบทวนตำแหน่งกล้องและมุมมองในพื้นที่ที่เกิดเหตุซ้ำ เพื่อเพิ่มความแม่นยำ',
+      'ตั้งเกณฑ์แจ้งเตือนแบบสองชั้น (confidence + persistence) เพื่อลด false positive'
+    ],
+    generatedAt: new Date().toLocaleString('th-TH', { timeZone: ANALYTICS_TIMEZONE }),
+    modelLabel: 'Heuristic Analytics v1'
+  };
+};
+
+const extractFirstJsonObject = (text) => {
+  if (!text) return null;
+  const raw = String(text).trim();
+  if (!raw) return null;
+
+  const start = raw.indexOf('{');
+  if (start < 0) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < raw.length; i += 1) {
+    const ch = raw[i];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === '{') {
+      depth += 1;
+      continue;
+    }
+    if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return raw.slice(start, i + 1);
+      }
+    }
+  }
+
+  return null;
+};
+
+const toStringList = (value, fallback, maxItems = 5) => {
+  if (!Array.isArray(value)) return fallback;
+  const list = value
+    .map((item) => normalizeString(item, '', 200))
+    .filter(Boolean);
+  if (list.length === 0) return fallback;
+  return list.slice(0, maxItems);
+};
+
+const parseLlmResponse = (content, fallback) => {
+  const jsonText = extractFirstJsonObject(content);
+  if (!jsonText) return fallback;
+
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch {
+    return fallback;
+  }
+
+  return {
+    summary: normalizeString(parsed.summary, fallback.summary, 400),
+    highlights: toStringList(parsed.highlights, fallback.highlights, 6),
+    recommendations: toStringList(parsed.recommendations, fallback.recommendations, 6),
+    generatedAt: new Date().toLocaleString('th-TH', { timeZone: ANALYTICS_TIMEZONE }),
+    modelLabel: normalizeString(parsed.modelLabel, relayConfig.llm.model, 80)
+  };
+};
+
+const callOpenAiCompatible = async (events, selectedDateKey, fallback) => {
+  const stats = buildStats(events, selectedDateKey);
+  const recentEvents = events.slice(0, 40).map((event) => ({
+    timestampMs: event.timestamp,
+    localDateTime: formatTimestampThai(event.timestamp),
+    dateKey: getDateKeyInAnalyticsTimezone(event.timestamp),
+    localHour: getHourInAnalyticsTimezone(event.timestamp),
+    confidencePct: Number((event.confidence * 100).toFixed(1)),
+    location: event.location,
+    personLabel: event.personLabel || '',
+    reason: event.reason
+  }));
+
+  const systemPrompt = [
+    'You are a safety analytics assistant for fall-detection events.',
+    'Write concise Thai output for caregivers and operators.',
+    'Return ONLY valid JSON with keys: summary, highlights, recommendations, modelLabel.',
+    `Use the provided local timezone "${ANALYTICS_TIMEZONE}" for all time-based analysis.`,
+    'Do not convert localHour/dateKey into UTC before reasoning.',
+    'Constraints:',
+    '- summary: one short paragraph, max 220 chars',
+    '- highlights: array of 3-5 specific findings with numbers',
+    '- recommendations: array of 3-5 actionable items',
+    '- modelLabel: short model name'
+  ].join('\n');
+
+  const userPayload = {
+    selectedDateKey,
+    timezone: ANALYTICS_TIMEZONE,
+    stats,
+    recentEvents
+  };
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), relayConfig.llm.timeoutMs);
+
+  let response;
+  let rawResponse = '';
+  try {
+    response = await fetch(`${relayConfig.llm.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${relayConfig.llm.apiKey}`
+      },
+      body: JSON.stringify({
+        model: relayConfig.llm.model,
+        temperature: 0.2,
+        max_tokens: 700,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: JSON.stringify(userPayload) }
+        ]
+      }),
+      signal: controller.signal
+    });
+
+    rawResponse = await response.text();
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!response.ok) {
+    throw new Error(`LLM API error ${response.status}: ${rawResponse.slice(0, 200)}`);
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(rawResponse);
+  } catch {
+    throw new Error('LLM API returned non-JSON response');
+  }
+
+  const messageContent = payload?.choices?.[0]?.message?.content;
+  const content = typeof messageContent === 'string'
+    ? messageContent
+    : Array.isArray(messageContent)
+      ? messageContent.map((part) => (typeof part?.text === 'string' ? part.text : '')).join('\n')
+      : '';
+
+  if (!content) {
+    throw new Error('LLM API returned empty content');
+  }
+
+  return parseLlmResponse(content, fallback);
+};
+
+export const generateLlmInsight = async ({ history, selectedDate }) => {
+  const selectedDateKey = normalizeSelectedDateKey(selectedDate);
+  const events = sanitizeEvents(history);
+  const fallback = buildFallbackInsight(events, selectedDateKey);
+
+  if (!relayConfig.llm.analyticsEnabled) {
+    return fallback;
+  }
+
+  if (!relayConfig.llm.configured) {
+    return {
+      ...fallback,
+      modelLabel: 'Heuristic Analytics v1 (LLM not configured)'
+    };
+  }
+
+  try {
+    return await callOpenAiCompatible(events, selectedDateKey, fallback);
+  } catch (error) {
+    console.error(`LLM insight generation failed: ${error.message || 'unknown error'}`);
+    return {
+      ...fallback,
+      modelLabel: `${relayConfig.llm.model} (fallback)`
+    };
+  }
+};
+
+export const getLlmHealthMeta = () => {
+  return {
+    llmAnalyticsEnabled: relayConfig.llm.analyticsEnabled,
+    llmConfigured: relayConfig.llm.configured,
+    llmModel: relayConfig.llm.model,
+    llmBaseUrl: relayConfig.llm.baseUrl,
+    llmTimeoutMs: relayConfig.llm.timeoutMs,
+    llmTimeZone: ANALYTICS_TIMEZONE
+  };
+};
