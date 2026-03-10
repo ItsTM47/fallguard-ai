@@ -55,6 +55,7 @@ services:
       - .env.local
     environment:
       LINE_RELAY_PORT: "8787"
+      TZ: ${LLM_TIMEZONE:-Asia/Bangkok}
       LINE_IMAGE_STORAGE_DIR: /app/backend/uploads
       MLFLOW_TRACKING_URI: ${DOCKER_MLFLOW_TRACKING_URI:-http://mlflow:5001}
       DATABASE_ENABLED: ${DATABASE_ENABLED:-true}
@@ -81,6 +82,7 @@ services:
       MLFLOW_BACKEND_STORE_URI: ${MLFLOW_BACKEND_STORE_URI:-sqlite:////mlflow/mlflow.db}
       MLFLOW_DEFAULT_ARTIFACT_ROOT: ${MLFLOW_DEFAULT_ARTIFACT_ROOT:-/mlflow/artifacts}
       MLFLOW_ALLOWED_HOSTS: ${MLFLOW_ALLOWED_HOSTS:-*}
+      MLFLOW_CORS_ALLOWED_ORIGINS: ${MLFLOW_CORS_ALLOWED_ORIGINS:-*}
     ports:
       - "${MLFLOW_PORT:-5001}:5001"
     volumes:
