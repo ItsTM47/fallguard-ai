@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { FallHistoryService } from '@/services/fallHistory';
 import type { FallEvent } from '@/services/fallHistory';
-import { generateMockLlmInsight } from '@/services/llmAnalytics';
+import { generateLlmInsight } from '@/services/llmAnalytics';
 import type { LlmInsightResult } from '@/services/llmAnalytics';
 import { cn } from '@/lib/utils';
 
@@ -262,7 +262,7 @@ const AnalyticsSection: React.FC = () => {
   const runAnalysis = useCallback(async () => {
     setIsAnalyzing(true);
     try {
-      const result = await generateMockLlmInsight(history, selectedDate);
+      const result = await generateLlmInsight(history, selectedDate);
       setInsight(result);
     } finally {
       setIsAnalyzing(false);

@@ -44,8 +44,18 @@ export const parseBooleanEnv = (value, defaultValue = false) => {
   return ['1', 'true', 'yes', 'on'].includes(normalized);
 };
 
+const parseIntegerEnv = (value, fallback, min = Number.MIN_SAFE_INTEGER, max = Number.MAX_SAFE_INTEGER) => {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+};
+
 const publicBaseUrl = (process.env.LINE_PUBLIC_BASE_URL || '').replace(/\/$/, '');
 const mlflowTrackingUri = (process.env.MLFLOW_TRACKING_URI || '').replace(/\/$/, '');
+const llmBaseUrl = (process.env.LLM_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '');
+const llmModel = (process.env.LLM_MODEL || 'gpt-4o-mini').trim();
+const llmAnalyticsEnabled = parseBooleanEnv(process.env.LLM_ANALYTICS_ENABLED, false);
+const llmApiKey = (process.env.LLM_API_KEY || '').trim();
 
 export const relayConfig = {
   port: Number.parseInt(process.env.LINE_RELAY_PORT || '8787', 10),
@@ -77,6 +87,15 @@ export const relayConfig = {
     url: process.env.DATABASE_URL || '',
     ssl: parseBooleanEnv(process.env.DATABASE_SSL, false),
     poolMax: Number.parseInt(process.env.DATABASE_POOL_MAX || '10', 10)
+  },
+  llm: {
+    analyticsEnabled: llmAnalyticsEnabled,
+    configured: llmAnalyticsEnabled && !!llmApiKey,
+    apiKey: llmApiKey,
+    baseUrl: llmBaseUrl,
+    model: llmModel || 'gpt-4o-mini',
+    timeoutMs: parseIntegerEnv(process.env.LLM_TIMEOUT_MS, 20000, 1000, 120000),
+    maxInputEvents: parseIntegerEnv(process.env.LLM_MAX_INPUT_EVENTS, 240, 20, 1000)
   },
   relayAppVersion: process.env.RELAY_APP_VERSION || process.env.npm_package_version || 'dev',
   relayGitSha: process.env.RELAY_GIT_SHA || process.env.GIT_SHA || ''

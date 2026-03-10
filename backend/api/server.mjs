@@ -1,6 +1,7 @@
 import http from 'node:http';
 import { relayConfig } from './config/env.mjs';
 import { withErrorHandler } from './middleware/errorHandler.mjs';
+import { handleAnalyticsRoute } from './routes/analytics.mjs';
 import { handleEventsRoute } from './routes/events.mjs';
 import { handleHealthRoute } from './routes/health.mjs';
 import { handleImageRoute } from './routes/images.mjs';
@@ -10,6 +11,7 @@ import { sendJson } from './utils/http.mjs';
 import { initializeDatabase } from '../database/init.mjs';
 
 const safeWebhookRoute = withErrorHandler(handleWebhookRoute);
+const safeAnalyticsRoute = withErrorHandler(handleAnalyticsRoute);
 
 const getRequestPath = (urlValue) => {
   if (!urlValue) return '';
@@ -35,6 +37,7 @@ export const createRelayServer = () => {
     }
 
     if (handleHealthRoute(req, res, req.method, requestPath)) return;
+    if (await safeAnalyticsRoute(req, res, req.method, requestPath)) return;
     if (await handleEventsRoute(req, res, req.method, requestPath)) return;
     if (handleImageRoute(req, res, req.method, requestPath)) return;
     if (await safeWebhookRoute(req, res, req.method, requestPath)) return;
