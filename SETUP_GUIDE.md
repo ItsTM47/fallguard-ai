@@ -259,12 +259,21 @@ docker compose up -d --build
 docker compose up -d --build web
 ```
 
-### 9.4 เช็กจาก VM
+### 9.4 เช็กจาก VM (Internal Check)
 
 ```bash
 docker compose ps
 curl -s http://localhost:8787/health
 curl -s http://localhost:8787/api/events?limit=3
+```
+
+หมายเหตุ:
+- ตรงนี้ตั้งใจใช้ `localhost` เพราะเป็นการเช็กจากใน VM เองว่า container ทำงานปกติก่อน (ไม่ผ่าน reverse proxy)
+- ถ้าจะเช็กจากเครื่องภายนอก VM ให้ใช้ public URL เช่น:
+
+```bash
+curl -s https://34-142-149-101.sslip.io/health
+curl -s "https://34-142-149-101.sslip.io/api/events?limit=3"
 ```
 
 ## 10) ตั้ง HTTPS ด้วย Caddy (Optional แต่แนะนำ)
