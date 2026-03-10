@@ -1,6 +1,6 @@
 # Database (PostgreSQL)
 
-โฟลเดอร์นี้เก็บ schema และ logic สำหรับบันทึกข้อมูลจาก relay ลง PostgreSQL
+โฟลเดอร์นี้เก็บ schema และ logic สำหรับบันทึกข้อมูลจาก relay ลง PostgreSQL แบบ minimal
 
 ## ไฟล์หลัก
 
@@ -10,18 +10,11 @@
 - `migrate.mjs` สั่ง apply schema แบบ manual
 - `eventStore.mjs` เขียน event/webhook/LINE/MLflow/audit ลง DB
 
-## ตารางที่เก็บข้อมูล
+## ตารางที่เก็บข้อมูล (จำเป็นเท่านั้น)
 
-- `sites` ข้อมูลองค์กร/สถานที่
-- `cameras` กล้องหรือจุดติดตั้ง
-- `person_profiles` โปรไฟล์บุคคลที่ระบบระบุได้ (`personId`/`personLabel`)
-- `notification_targets` เป้าหมายแจ้งเตือน (เช่น LINE user)
-- `event_records` เหตุการณ์หลัก (ล้ม/near_fall/test/manual/webhook)
-- `event_images` ไฟล์ภาพของเหตุการณ์ (ชื่อไฟล์, path, hash, size)
-- `alert_deliveries` ผลการส่งแจ้งเตือนแต่ละครั้ง (success/status/latency/response)
-- `mlflow_run_logs` ความเชื่อมโยงกับ MLflow run + metrics/params/tags
-- `relay_audit_logs` request-level audit log
-- `system_settings` ค่าคอนฟิกที่ต้องเก็บใน DB
+- `event_records` เหตุการณ์หลัก (เวลา, คน, สถานที่, confidence, message, metadata)
+- `event_images` ภาพของเหตุการณ์ (ชื่อไฟล์, path, hash, size)
+- `alert_deliveries` ผลการส่งแจ้งเตือน LINE (success/status/error/latency/payload)
 
 ## วิธีใช้งาน
 
