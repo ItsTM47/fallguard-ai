@@ -1,6 +1,7 @@
 import { relayConfig } from '../config/env.mjs';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_LLM_TIMEZONE = 'Asia/Bangkok';
 
 const normalizeConfidence = (value) => {
   const num = Number.parseFloat(String(value ?? ''));
@@ -29,10 +30,109 @@ const normalizeDate = (value) => {
   return date;
 };
 
-const startOfDayMs = (date) => {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
+const resolveTimeZone = (value, fallback = DEFAULT_LLM_TIMEZONE) => {
+  const candidate = normalizeString(value, '', 80);
+  if (!candidate) return fallback;
+
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: candidate }).format(new Date());
+    return candidate;
+  } catch {
+    return fallback;
+  }
+};
+
+const ANALYTICS_TIMEZONE = resolveTimeZone(relayConfig.llm.timezone);
+
+const DATE_PARTS_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  timeZone: ANALYTICS_TIMEZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit'
+});
+
+const HOUR_FORMATTER = new Intl.DateTimeFormat('en-GB', {
+  timeZone: ANALYTICS_TIMEZONE,
+  hour: '2-digit',
+  hour12: false
+});
+
+const THAI_DATE_FORMATTER = new Intl.DateTimeFormat('th-TH', {
+  timeZone: ANALYTICS_TIMEZONE,
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric'
+});
+
+const THAI_DATETIME_FORMATTER = new Intl.DateTimeFormat('th-TH', {
+  timeZone: ANALYTICS_TIMEZONE,
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false
+});
+
+const getDateKeyInAnalyticsTimezone = (timestamp) => {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return '';
+
+  const parts = DATE_PARTS_FORMATTER.formatToParts(date);
+  const year = parts.find((part) => part.type === 'year')?.value;
+  const month = parts.find((part) => part.type === 'month')?.value;
+  const day = parts.find((part) => part.type === 'day')?.value;
+  if (!year || !month || !day) return '';
+  return `${year}-${month}-${day}`;
+};
+
+const getHourInAnalyticsTimezone = (timestamp) => {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return 0;
+
+  const hourText = HOUR_FORMATTER.format(date);
+  const parsed = Number.parseInt(hourText, 10);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 23) return 0;
+  return parsed;
+};
+
+const formatDateKeyThai = (dateKey) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateKey || '').trim());
+  if (!match) return dateKey || '';
+
+  const year = Number.parseInt(match[1], 10);
+  const month = Number.parseInt(match[2], 10);
+  const day = Number.parseInt(match[3], 10);
+  const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  if (Number.isNaN(date.getTime())) return dateKey || '';
+  return THAI_DATE_FORMATTER.format(date);
+};
+
+const formatTimestampThai = (timestamp) => {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return '';
+  return THAI_DATETIME_FORMATTER.format(date);
+};
+
+const normalizeSelectedDateKey = (value) => {
+  if (!value && value !== 0) return '';
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+    const parsed = normalizeDate(trimmed);
+    return parsed ? getDateKeyInAnalyticsTimezone(parsed.getTime()) : '';
+  }
+
+  if (typeof value === 'number') {
+    return getDateKeyInAnalyticsTimezone(value);
+  }
+
+  const parsed = normalizeDate(value);
+  if (!parsed) return '';
+  return getDateKeyInAnalyticsTimezone(parsed.getTime());
 };
 
 const getMostFrequent = (items) => {
@@ -59,7 +159,7 @@ const getMostRiskyHour = (events) => {
   if (!Array.isArray(events) || events.length === 0) return null;
   const hourCounts = new Map();
   events.forEach((event) => {
-    const hour = new Date(event.timestamp).getHours();
+    const hour = getHourInAnalyticsTimezone(event.timestamp);
     hourCounts.set(hour, (hourCounts.get(hour) ?? 0) + 1);
   });
 
@@ -103,7 +203,7 @@ const sanitizeEvents = (history) => {
   return cleaned.slice(0, maxInputEvents);
 };
 
-const buildStats = (events, selectedDate) => {
+const buildStats = (events, selectedDateKey) => {
   const totalFalls = events.length;
   const avgConfidence = totalFalls > 0
     ? events.reduce((sum, event) => sum + event.confidence, 0) / totalFalls
@@ -128,11 +228,9 @@ const buildStats = (events, selectedDate) => {
       ? `ลดลง ${Math.abs(trendDiff)} เหตุการณ์ใน 7 วันล่าสุด`
       : 'แนวโน้มคงที่เมื่อเทียบกับช่วง 7 วันก่อนหน้า';
 
-  let selectedDayCount = 0;
-  if (selectedDate) {
-    const selectedDay = startOfDayMs(selectedDate);
-    selectedDayCount = events.filter((event) => startOfDayMs(new Date(event.timestamp)) === selectedDay).length;
-  }
+  const selectedDayCount = selectedDateKey
+    ? events.filter((event) => getDateKeyInAnalyticsTimezone(event.timestamp) === selectedDateKey).length
+    : 0;
 
   return {
     totalFalls,
@@ -143,12 +241,14 @@ const buildStats = (events, selectedDate) => {
     riskyHour,
     topLocation,
     topPerson,
-    selectedDate: selectedDate ? selectedDate.toISOString() : '',
+    timezone: ANALYTICS_TIMEZONE,
+    selectedDateKey,
+    selectedDateLabel: selectedDateKey ? formatDateKeyThai(selectedDateKey) : '',
     selectedDayCount
   };
 };
 
-const buildFallbackInsight = (events, selectedDate) => {
+const buildFallbackInsight = (events, selectedDateKey) => {
   if (events.length === 0) {
     return {
       summary: 'ยังไม่มีข้อมูลการล้มเพียงพอสำหรับวิเคราะห์เชิงลึก',
@@ -162,12 +262,12 @@ const buildFallbackInsight = (events, selectedDate) => {
         'ระบุ location และ personLabel ให้สม่ำเสมอเพื่อวิเคราะห์ root cause',
         'ตรวจสอบค่า confidence ที่สูงผิดปกติเพื่อปรับ threshold ลด false alarm'
       ],
-      generatedAt: new Date().toLocaleString('th-TH'),
+      generatedAt: new Date().toLocaleString('th-TH', { timeZone: ANALYTICS_TIMEZONE }),
       modelLabel: 'Heuristic Analytics v1'
     };
   }
 
-  const stats = buildStats(events, selectedDate);
+  const stats = buildStats(events, selectedDateKey);
   const riskyHourText = stats.riskyHour
     ? `${stats.riskyHour.hour.toString().padStart(2, '0')}:00-${((stats.riskyHour.hour + 1) % 24).toString().padStart(2, '0')}:00 (${stats.riskyHour.count} ครั้ง)`
     : 'ยังไม่ชัดเจน';
@@ -182,8 +282,8 @@ const buildFallbackInsight = (events, selectedDate) => {
       : 'ยังไม่พบข้อมูลบุคคลเด่น'
   ];
 
-  if (selectedDate) {
-    highlights.push(`วันที่เลือก (${selectedDate.toLocaleDateString('th-TH')}) มีเหตุการณ์ ${stats.selectedDayCount} ครั้ง`);
+  if (selectedDateKey) {
+    highlights.push(`วันที่เลือก (${stats.selectedDateLabel || selectedDateKey}) มีเหตุการณ์ ${stats.selectedDayCount} ครั้ง`);
   }
 
   return {
@@ -194,7 +294,7 @@ const buildFallbackInsight = (events, selectedDate) => {
       'ทบทวนตำแหน่งกล้องและมุมมองในพื้นที่ที่เกิดเหตุซ้ำ เพื่อเพิ่มความแม่นยำ',
       'ตั้งเกณฑ์แจ้งเตือนแบบสองชั้น (confidence + persistence) เพื่อลด false positive'
     ],
-    generatedAt: new Date().toLocaleString('th-TH'),
+    generatedAt: new Date().toLocaleString('th-TH', { timeZone: ANALYTICS_TIMEZONE }),
     modelLabel: 'Heuristic Analytics v1'
   };
 };
@@ -268,15 +368,18 @@ const parseLlmResponse = (content, fallback) => {
     summary: normalizeString(parsed.summary, fallback.summary, 400),
     highlights: toStringList(parsed.highlights, fallback.highlights, 6),
     recommendations: toStringList(parsed.recommendations, fallback.recommendations, 6),
-    generatedAt: new Date().toLocaleString('th-TH'),
+    generatedAt: new Date().toLocaleString('th-TH', { timeZone: ANALYTICS_TIMEZONE }),
     modelLabel: normalizeString(parsed.modelLabel, relayConfig.llm.model, 80)
   };
 };
 
-const callOpenAiCompatible = async (events, selectedDate, fallback) => {
-  const stats = buildStats(events, selectedDate);
+const callOpenAiCompatible = async (events, selectedDateKey, fallback) => {
+  const stats = buildStats(events, selectedDateKey);
   const recentEvents = events.slice(0, 40).map((event) => ({
-    timestamp: new Date(event.timestamp).toISOString(),
+    timestampMs: event.timestamp,
+    localDateTime: formatTimestampThai(event.timestamp),
+    dateKey: getDateKeyInAnalyticsTimezone(event.timestamp),
+    localHour: getHourInAnalyticsTimezone(event.timestamp),
     confidencePct: Number((event.confidence * 100).toFixed(1)),
     location: event.location,
     personLabel: event.personLabel || '',
@@ -287,6 +390,8 @@ const callOpenAiCompatible = async (events, selectedDate, fallback) => {
     'You are a safety analytics assistant for fall-detection events.',
     'Write concise Thai output for caregivers and operators.',
     'Return ONLY valid JSON with keys: summary, highlights, recommendations, modelLabel.',
+    `Use the provided local timezone "${ANALYTICS_TIMEZONE}" for all time-based analysis.`,
+    'Do not convert localHour/dateKey into UTC before reasoning.',
     'Constraints:',
     '- summary: one short paragraph, max 220 chars',
     '- highlights: array of 3-5 specific findings with numbers',
@@ -295,7 +400,8 @@ const callOpenAiCompatible = async (events, selectedDate, fallback) => {
   ].join('\n');
 
   const userPayload = {
-    selectedDate: selectedDate ? selectedDate.toISOString() : '',
+    selectedDateKey,
+    timezone: ANALYTICS_TIMEZONE,
     stats,
     recentEvents
   };
@@ -355,9 +461,9 @@ const callOpenAiCompatible = async (events, selectedDate, fallback) => {
 };
 
 export const generateLlmInsight = async ({ history, selectedDate }) => {
-  const normalizedDate = normalizeDate(selectedDate);
+  const selectedDateKey = normalizeSelectedDateKey(selectedDate);
   const events = sanitizeEvents(history);
-  const fallback = buildFallbackInsight(events, normalizedDate);
+  const fallback = buildFallbackInsight(events, selectedDateKey);
 
   if (!relayConfig.llm.analyticsEnabled) {
     return fallback;
@@ -371,7 +477,7 @@ export const generateLlmInsight = async ({ history, selectedDate }) => {
   }
 
   try {
-    return await callOpenAiCompatible(events, normalizedDate, fallback);
+    return await callOpenAiCompatible(events, selectedDateKey, fallback);
   } catch (error) {
     console.error(`LLM insight generation failed: ${error.message || 'unknown error'}`);
     return {
@@ -387,6 +493,7 @@ export const getLlmHealthMeta = () => {
     llmConfigured: relayConfig.llm.configured,
     llmModel: relayConfig.llm.model,
     llmBaseUrl: relayConfig.llm.baseUrl,
-    llmTimeoutMs: relayConfig.llm.timeoutMs
+    llmTimeoutMs: relayConfig.llm.timeoutMs,
+    llmTimeZone: ANALYTICS_TIMEZONE
   };
 };
