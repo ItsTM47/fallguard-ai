@@ -50,9 +50,23 @@ const toSafeTimestamp = (value: unknown): number => {
 const normalizeScreenshotUrl = (value: unknown, relayBaseUrl: string): string => {
   const raw = typeof value === 'string' ? value.trim() : '';
   if (!raw) return '';
-  if (raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('data:image/')) {
-    return raw;
+  if (raw.startsWith('data:image/')) return raw;
+
+  // Prefer relay local URL for stored image paths so dashboard preview still works
+  // when public tunnel URLs (e.g. ngrok) are temporarily unavailable.
+  try {
+    const parsed = new URL(raw, relayBaseUrl || window.location.origin);
+    if (parsed.pathname.startsWith('/images/') && relayBaseUrl) {
+      return `${relayBaseUrl}${parsed.pathname}${parsed.search}${parsed.hash}`;
+    }
+
+    if (raw.startsWith('http://') || raw.startsWith('https://')) {
+      return raw;
+    }
+  } catch {
+    // fallback below
   }
+
   if (raw.startsWith('/') && relayBaseUrl) {
     return `${relayBaseUrl}${raw}`;
   }
