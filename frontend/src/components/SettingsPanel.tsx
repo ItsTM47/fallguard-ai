@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { defaultSettings, SettingsService } from '@/services/settings';
 import type { FallGuardSettings } from '@/services/settings';
 import { LineMessagingService, LineWebhookService } from '@/services/lineMessaging';
+import { isBrowserLocalOrigin } from '@/services/relayUrls';
 
 interface SettingsPanelProps {
   onSettingsChange?: (settings: FallGuardSettings) => void;
@@ -23,6 +24,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onSettingsChange }) => {
   const [isTesting, setIsTesting] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('line');
+  const lineApiDisabled = !isBrowserLocalOrigin();
   
   // Load settings on mount
   useEffect(() => {
@@ -59,6 +61,10 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onSettingsChange }) => {
           toast.error(`ส่งไม่สำเร็จ: ${result.message}`);
         }
       } else if (settings.channelAccessToken && settings.userId) {
+        if (lineApiDisabled) {
+          toast.error('เปิดจากเครื่องอื่นต้องใช้ Webhook เท่านั้น (LINE API ติด CORS)');
+          return;
+        }
         // Test via LINE Messaging API
         const service = new LineMessagingService({
           channelAccessToken: settings.channelAccessToken,
@@ -110,7 +116,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onSettingsChange }) => {
           {/* LINE / Webhook Tabs */}
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="line" onClick={() => updateSetting('useWebhook', false)}>
+              <TabsTrigger value="line" disabled={lineApiDisabled} onClick={() => updateSetting('useWebhook', false)}>
                 <MessageSquare className="w-4 h-4 mr-2" />
                 LINE API
               </TabsTrigger>
@@ -130,6 +136,14 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onSettingsChange }) => {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  {lineApiDisabled && (
+                    <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3">
+                      <p className="text-red-400 text-xs">
+                        โหมดนี้ใช้ไม่ได้เมื่อเปิดเว็บจากโดเมนภายนอก เพราะเบราว์เซอร์จะติด CORS กับ LINE API.
+                        ให้ใช้แท็บ Webhook เท่านั้น
+                      </p>
+                    </div>
+                  )}
                   <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
                     <p className="text-amber-400 text-xs">
                       ⚠️ ต้องสร้าง LINE Bot และมี Backend Server สำหรับอัปโหลดรูปภาพ

@@ -8,6 +8,10 @@ const isLocalHost = (host: string): boolean => {
   return LOCAL_HOSTS.has(normalizeHost(host));
 };
 
+export const isBrowserLocalOrigin = (): boolean => {
+  return isLocalHost(window.location.hostname);
+};
+
 export const resolveClientReachableUrl = (rawValue: string, fallbackPath: string): string => {
   const fallback = new URL(fallbackPath, window.location.origin).toString();
   const raw = (rawValue || '').trim();
@@ -47,4 +51,3 @@ export const getRelayBaseUrl = (): string => {
     return window.location.origin;
   }
 };
-

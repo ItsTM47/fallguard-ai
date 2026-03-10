@@ -7,6 +7,7 @@ import { LineMessagingService, LineWebhookService } from '@/services/lineMessagi
 import { SettingsService } from '@/services/settings';
 import type { FallGuardSettings } from '@/services/settings';
 import { FallHistoryService } from '@/services/fallHistory';
+import { isBrowserLocalOrigin } from '@/services/relayUrls';
 import CameraFeed from '@/components/CameraFeed';
 import StatusIndicator from '@/components/StatusIndicator';
 import SettingsPanel from '@/components/SettingsPanel';
@@ -20,6 +21,7 @@ const AppSection: React.FC = () => {
   const [lastFallResult, setLastFallResult] = useState<FallDetectionResult | null>(null);
   const [isSendingAlert, setIsSendingAlert] = useState(false);
   const [autoNotify, setAutoNotify] = useState(true);
+  const lineApiDisabled = !isBrowserLocalOrigin();
   const screenshotRef = React.useRef<string>('');
   const captureFallbackScreenshotRef = React.useRef<() => string>(() => '');
   
@@ -83,6 +85,11 @@ const AppSection: React.FC = () => {
           timestamp: new Date().toISOString()
         });
       } else if (settings.channelAccessToken && settings.userId) {
+        if (lineApiDisabled) {
+          toast.error('เปิดจากเครื่องอื่นต้องใช้ Webhook เท่านั้น (LINE API ติด CORS)');
+          setIsSendingAlert(false);
+          return;
+        }
         // Send via LINE Messaging API
         const service = new LineMessagingService({
           channelAccessToken: settings.channelAccessToken,

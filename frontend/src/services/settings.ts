@@ -1,4 +1,4 @@
-import { getRelayWebhookUrl, resolveClientReachableUrl } from '@/services/relayUrls';
+import { getRelayWebhookUrl, isBrowserLocalOrigin, resolveClientReachableUrl } from '@/services/relayUrls';
 
 export interface FallGuardSettings {
   // LINE Messaging API Settings
@@ -52,6 +52,12 @@ export class SettingsService {
         merged.webhookUrl = resolveClientReachableUrl(merged.webhookUrl || '', '/line-webhook');
         if (merged.useWebhook && !merged.webhookUrl) {
           merged.webhookUrl = defaultWebhookUrl;
+        }
+        // Browser cannot call LINE Messaging API directly due CORS.
+        // Force webhook mode when app is opened from non-local origin.
+        if (!isBrowserLocalOrigin()) {
+          merged.useWebhook = true;
+          if (!merged.webhookUrl) merged.webhookUrl = defaultWebhookUrl;
         }
         return merged;
       }
