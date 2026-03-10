@@ -116,7 +116,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ onSettingsChange }) => {
           {/* LINE / Webhook Tabs */}
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="line" disabled={lineApiDisabled} onClick={() => updateSetting('useWebhook', false)}>
+              <TabsTrigger value="line" onClick={() => updateSetting('useWebhook', false)}>
                 <MessageSquare className="w-4 h-4 mr-2" />
                 LINE API
               </TabsTrigger>

@@ -1,300 +1,221 @@
-# FallGuard (React + TypeScript + Vite)
+# FallGuard AI
 
-## Project Layout
+ระบบเฝ้าระวังการล้มแบบ real-time พร้อมแจ้งเตือน LINE, เก็บเหตุการณ์ลง PostgreSQL, และบันทึก telemetry ลง MLflow
 
-- `frontend/` React + Vite web app
-- `backend/api/` Node.js relay API for LINE + MLflow logging
-- `backend/uploads/` runtime uploaded snapshots
-- `ai/` placeholder for AI/model assets
-- `ai_service/` ML/analytics service container files
-- `scripts/` local orchestration scripts (`dev:all`, `dev:stop`)
-- `docker-compose.yml` full stack (web + relay + mlflow)
+## สถาปัตยกรรมระบบ
 
-## LINE Alert Quick Setup (Webhook Relay)
+- `frontend/` เว็บแอป (React + Vite)
+- `backend/api/` relay API สำหรับ webhook, events, analytics และ image route
+- `backend/database/` schema + migrate + event store
+- `ai_service/` container สำหรับ MLflow server
+- `docker/pgadmin/servers.json` ค่า pre-load server สำหรับ pgAdmin
+- `docker-compose.yml` stack สำหรับ web + relay + postgres + pgadmin + mlflow
 
-This project includes a local relay server for sending alerts to LINE Messaging API safely.
+Data flow:
 
-1. Copy env template
+1. Frontend ส่ง event ไป `relay` (`/line-webhook`)
+2. Relay ส่ง LINE push message (text/image)
+3. Relay บันทึกเหตุการณ์ลง Postgres (`event_records`, `event_images`, `alert_deliveries`)
+4. Relay log metadata/metrics ไป MLflow
+5. Frontend ดึง timeline/calendar จาก `GET /api/events`
+
+## Tech Stack
+
+- Frontend: React 19, TypeScript, Vite
+- Backend Relay: Node.js (native HTTP), `pg`
+- Database: PostgreSQL 16
+- DB GUI: pgAdmin 4
+- Experiment Tracking: MLflow
+- Reverse Proxy/HTTPS (cloud): Caddy (optional, manual setup)
+- Container: Docker Compose
+
+## เริ่มต้นใช้งาน (Local)
+
+### 1) เตรียม environment
 
 ```bash
 cp .env.relay.example .env.local
 ```
 
-2. Fill values in `.env.local`
+ค่าอย่างน้อยที่ต้องใส่ใน `.env.local`:
+
 - `LINE_CHANNEL_ACCESS_TOKEN`
 - `LINE_TARGET_USER_ID`
-- Optional: `LINE_RELAY_SECRET` and `VITE_LINE_RELAY_SECRET` (must match)
-- Optional for sending image: `LINE_PUBLIC_BASE_URL` (must be public HTTPS URL)
+- (แนะนำ) `LINE_RELAY_SECRET` และตั้ง `VITE_LINE_RELAY_SECRET` ให้ตรงกัน
+- ถ้าต้องการส่งรูปไป LINE: `LINE_PUBLIC_BASE_URL` ต้องเป็น URL `https` ที่เข้าถึงได้จากภายนอก
 
-3. Run relay server and app
-
-```bash
-npm run dev:relay
-npm run dev
-```
-
-Or run everything (web + relay + ngrok) in one command:
-
-```bash
-npm run dev:all
-```
-
-Or run everything with MLflow too (starts Docker `mlflow` service first):
-
-```bash
-npm run dev:all:with-mlflow
-```
-
-Stop everything (local + Docker):
-
-```bash
-npm run dev:stop
-```
-
-Clean generated local files:
-
-```bash
-npm run clean
-```
-
-Clean generated files + local MLflow runs:
-
-```bash
-npm run clean:all
-```
-
-- If `NGROK_DOMAIN` is set in `.env.local`, it will run `ngrok http --domain <NGROK_DOMAIN> <LINE_RELAY_PORT>`.
-- If `NGROK_DOMAIN` is empty, it will run `ngrok http <LINE_RELAY_PORT>`.
-- If `LINE_PUBLIC_BASE_URL` is empty and `NGROK_DOMAIN` is set, it is auto-filled as `https://<NGROK_DOMAIN>` for that session.
-- For `dev:all:with-mlflow`, relay uses `MLFLOW_TRACKING_URI=http://localhost:5001` when unset or set to `http://mlflow:5001`.
-
-4. In the app settings
-- Choose `Webhook`
-- Use URL: `http://localhost:8787/line-webhook` (or from `VITE_LINE_WEBHOOK_URL`)
-- Press `ทดสอบการแจ้งเตือน`
-
-If the app can send test notification, fall alerts will also be pushed to LINE.
-
-### Send real image to LINE
-
-LINE image message requires a public HTTPS image URL.
-
-1. Expose relay with tunnel (example using ngrok)
-```bash
-ngrok http 8787
-```
-Or use one command:
-```bash
-npm run dev:all
-```
-2. Set `LINE_PUBLIC_BASE_URL` in `.env.local` to your ngrok HTTPS URL
-3. Restart relay: `npm run dev:relay`
-
-After this, fall alerts can include screenshot images in LINE.
-
-### Auto cleanup uploaded images
-
-Configure in `.env.local`:
-
-- `LINE_IMAGE_RETENTION_HOURS=24` to delete images older than 24 hours (`0` disables age-based cleanup)
-- `LINE_IMAGE_CLEANUP_INTERVAL_SECONDS=300` to run cleanup every 5 minutes (`0` disables periodic cleanup)
-- `LINE_IMAGE_MAX_FILES=500` to keep only the newest 500 files (`0` disables max-files cleanup)
-- `LINE_IMAGE_STORAGE_DIR=backend/uploads` (recommended path in this repository layout)
-
-### Connect MLflow
-
-Configure in `.env.local`:
-
-- `MLFLOW_TRACKING_URI=http://<mlflow-host>:5001` (or your hosted HTTPS endpoint)
-- `MLFLOW_EXPERIMENT_NAME=fallguard-alerts`
-- Optional image artifact:
-  - `MLFLOW_LOG_IMAGE_ARTIFACT=true`
-  - `MLFLOW_IMAGE_ARTIFACT_PATH=event-images`
-  - `MLFLOW_IMAGE_ARTIFACT_MAX_BYTES=2000000`
-- Optional auth: `MLFLOW_TRACKING_TOKEN` or `MLFLOW_TRACKING_USERNAME` + `MLFLOW_TRACKING_PASSWORD`
-- Optional run tags: `RELAY_APP_VERSION`, `RELAY_GIT_SHA`
-
-Then restart relay:
-
-```bash
-npm run dev:relay
-```
-
-Relay will create/log a run for each webhook event (test + fall alerts) with metrics like:
-- `line_push_success`
-- `has_image`
-- `line_image_message`
-- `mlflow_image_artifact`
-- `image_payload_kb`
-- `confidence_pct` (when available)
-
-And params/tags such as:
-- `event_type`, `location`, `person_label`, `line_status_code`
-- `image_artifact_path`, `image_artifact_uploaded`, `image_artifact_error`
-- tags `app_version`, `git_sha`, `source`
-
-## Docker (Web + Relay + MLflow)
-
-Run everything with Docker Compose:
+### 2) รันด้วย Docker (แนะนำ)
 
 ```bash
 docker compose up --build -d
 ```
 
-Services:
-- Web UI: `http://localhost:5173`
-- Relay API: `http://localhost:8787/health`
-- MLflow UI: `http://localhost:5001`
-- Postgres: `localhost:5432`
-- pgAdmin: `http://localhost:5050` (default login: `admin@admin.com` / `admin`)
+Endpoints:
 
-Stop services:
+- Web UI: `http://localhost:5173`
+- Relay Health: `http://localhost:8787/health`
+- MLflow: `http://localhost:5001`
+- pgAdmin: `http://localhost:5050`
+- Postgres: `localhost:5432`
+
+หยุดระบบ:
 
 ```bash
 docker compose down
 ```
 
-View logs:
+ดู log:
 
 ```bash
 docker compose logs -f --tail=200
 ```
 
-Notes:
-- Compose uses `.env.local` for relay secrets (`LINE_CHANNEL_ACCESS_TOKEN`, `LINE_TARGET_USER_ID`, etc.).
-- Inside Docker, relay talks to MLflow via `http://mlflow:5001` by default.
-- Inside Docker, relay talks to Postgres via `postgresql://fallguard:fallguard@postgres:5432/fallguard` by default.
-- MLflow backend store default เป็น `sqlite` (ใน volume `mlflow-data`) เพื่อไม่ให้สร้างตารางจำนวนมากใน app Postgres
-- MLflow host validation is enabled. Docker dev default uses `MLFLOW_ALLOWED_HOSTS=*` to avoid local host-header issues. For production, set a strict allow-list.
-- If host ports are occupied, override before running:
-  - `WEB_PORT=5174 RELAY_PORT=8788 MLFLOW_PORT=5002 POSTGRES_PORT=5433 PGADMIN_PORT=5051 docker compose up --build -d`
+### 3) รันแบบ dev เฉพาะ frontend/relay
 
-### pgAdmin quick connect
+```bash
+npm install
+npm run dev:relay
+npm run dev
+```
 
-1. เปิด `http://localhost:5050`
-2. Login ด้วย:
-   - Email: `admin@admin.com`
-   - Password: `admin`
-3. ระบบจะ pre-load server ให้อัตโนมัติชื่อ `fallguard-postgres` (Host `postgres`, DB `fallguard`)
-4. ถ้าเคยรัน pgAdmin มาก่อนแล้วและยังไม่เห็น server นี้ ให้ import ซ้ำ 1 ครั้ง:
+รันชุด dev แบบรวม:
+
+```bash
+npm run dev:all
+```
+
+## ตั้งค่า LINE ในหน้าเว็บ
+
+ในหน้า Settings:
+
+- เลือกโหมด `Webhook`
+- ตั้ง URL เป็น `/line-webhook` หรือ `${VITE_LINE_WEBHOOK_URL}`
+- กดทดสอบแจ้งเตือน
+
+หมายเหตุ:
+
+- การยิง LINE Messaging API ตรงจาก browser จะติด CORS ในเครื่องผู้ใช้อื่น
+- โหมดที่ถูกต้องสำหรับ deploy คือให้ browser ยิงเข้า relay เท่านั้น
+
+## PostgreSQL และ pgAdmin
+
+Relay จะบันทึกข้อมูลอัตโนมัติเมื่อมีการเรียก `/line-webhook`
+
+ตารางหลัก:
+
+- `event_records`
+- `event_images`
+- `alert_deliveries`
+
+### pgAdmin login
+
+- URL: `http://localhost:5050`
+- Email: `admin@admin.com`
+- Password: `admin`
+
+pgAdmin จะ pre-load server ชื่อ `fallguard-postgres` ให้อัตโนมัติ (host: `postgres`)
+
+ถ้าไม่เห็น server ให้ import ซ้ำ:
 
 ```bash
 docker compose exec pgadmin sh -lc '/venv/bin/python3 /pgadmin4/setup.py load-servers /pgadmin4/servers.json --user "$PGADMIN_DEFAULT_EMAIL"'
 ```
 
-5. เข้า Query Tool แล้วตรวจว่ามีข้อมูลจริง:
+### Query แนะนำสำหรับดูข้อมูลล่าสุด
 
 ```sql
-select count(*) from event_records;
+SELECT id, event_type, person_label, location_name, confidence_pct, occurred_at, created_at
+FROM public.event_records_latest
+LIMIT 20;
 ```
 
-## PostgreSQL Event Store
+`event_records_latest` เป็น view ที่เรียงตามเวลาล่าสุดอยู่แล้ว
 
-Relay จะบันทึกข้อมูลลง Postgres อัตโนมัติทุกครั้งที่เรียก `/line-webhook`
+## Migration
 
-### ตารางที่จัดเก็บ
-
-- `event_records` ข้อมูลเหตุการณ์หลัก (เวลา, person, confidence, location, metadata)
-- `event_images` ข้อมูลไฟล์ภาพ (filename/path/public URL/hash/size)
-- `alert_deliveries` ผลการส่ง LINE (success/status/error/latency/request payload snapshot)
-
-> โครงสร้างถูกลดให้เหลือเฉพาะข้อมูลจำเป็นของการแจ้งเตือน/เหตุการณ์ เพื่อให้ดูง่ายใน pgAdmin
-
-### API สำหรับหน้า Calendar/Timeline
-
-- `GET /api/events?days=120&limit=1500`
-- รองรับ query: `days`, `limit`, `from`, `to`, `eventType`
-- response มีข้อมูลที่หน้า analytics ใช้ตรงๆ เช่น `timestamp`, `personLabel`, `location`, `confidencePct`, `screenshotUrl`
-
-### การตั้งค่า
-
-กำหนดใน `.env.local`:
-
-- `DATABASE_ENABLED=true`
-- `DATABASE_URL=postgresql://fallguard:fallguard@localhost:5432/fallguard`
-- `DATABASE_SSL=false`
-- `DATABASE_POOL_MAX=10`
-
-รัน migration แบบ manual:
+รัน migration:
 
 ```bash
 npm run db:migrate
 ```
 
-หรือให้ relay apply schema ตอนเริ่มทำงานอัตโนมัติได้เลย.
+หรือใน Docker:
 
----
-
-# React + TypeScript + Vite
-
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
-
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+docker compose exec relay node backend/database/migrate.mjs
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+ถ้าเจอ `deadlock detected` ตอน migrate:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+docker compose stop relay
+docker compose run --rm relay node backend/database/migrate.mjs
+docker compose up -d relay
 ```
+
+โค้ดปัจจุบันเพิ่ม advisory lock แล้ว เพื่อลดโอกาสชนกันระหว่าง startup migration กับ manual migration
+
+## การ Deploy บน Cloud (แบบ Manual)
+
+แนวทางที่ใช้อยู่ในโปรเจกต์:
+
+1. เตรียม VM (Docker + Compose)
+2. `git pull` โค้ดล่าสุด
+3. รัน `docker compose up -d --build`
+4. เปิด firewall ตามพอร์ตที่ใช้ (`80/443`, `8787`, `5001`, `5050` ตามความจำเป็น)
+5. ถ้าต้องการ HTTPS ใช้ reverse proxy (เช่น Caddy) หน้า web/relay
+
+หมายเหตุสำคัญ:
+
+- การใช้งานจากเครื่องอื่นต้องไม่อิง `localhost:8787` ใน frontend build
+- ใช้ URL relay แบบ public domain/IP เท่านั้น
+
+## MLflow
+
+MLflow รันใน service `mlflow` โดย default:
+
+- Port `5001`
+- Backend store: `sqlite:////mlflow/mlflow.db` (ใน volume `mlflow-data`)
+
+ตัวอย่างเช็ก run ผ่าน API:
+
+```bash
+curl -s -X POST http://localhost:5001/api/2.0/mlflow/runs/search \
+  -H 'Content-Type: application/json' \
+  --data '{"experiment_ids":["1"],"max_results":5}'
+```
+
+## สคริปต์ที่ใช้บ่อย
+
+- `npm run dev`
+- `npm run dev:relay`
+- `npm run dev:all`
+- `npm run dev:all:with-mlflow`
+- `npm run dev:stop`
+- `npm run db:migrate`
+- `npm run docker:up`
+- `npm run docker:down`
+- `npm run docker:logs`
+- `npm run clean`
+- `npm run clean:all`
+
+## Security/Privacy Notes
+
+- อย่า commit ไฟล์ `.env.local`
+- เก็บ `LINE_CHANNEL_ACCESS_TOKEN` และ `LLM_API_KEY` เป็นความลับ
+- production ควรตั้งค่า `MLFLOW_ALLOWED_HOSTS` และ `MLFLOW_CORS_ALLOWED_ORIGINS` แบบ strict
+- จำกัดการเปิดพอร์ตสาธารณะเฉพาะที่จำเป็น
+
+## Troubleshooting เร็วๆ
+
+1. pgAdmin ไม่มีข้อมูลใหม่:
+`ORDER BY id` ไม่ใช่เวลาจริง ให้ใช้ `event_records_latest` หรือ `ORDER BY occurred_at DESC`
+
+2. เวลาใน DB เป็น UTC:
+ระบบจัดเก็บ `timestamptz` ปกติ สามารถตั้ง session เป็น `Asia/Bangkok` ใน pgAdmin ได้
+
+3. เปิด MLflow แล้ว `403 Invalid Host header`:
+ตรวจค่า `MLFLOW_ALLOWED_HOSTS` และ CORS ใน compose/env
+
+4. LINE ส่งรูปไม่ขึ้น:
+ตรวจ `LINE_PUBLIC_BASE_URL` ต้องเป็น `https` และไฟล์ใน `/images/<filename>` ต้องเข้าถึงได้จริง
