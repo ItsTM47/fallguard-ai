@@ -1,224 +1,181 @@
 # FallGuard AI
 
-ระบบเฝ้าระวังการล้มแบบ real-time พร้อมแจ้งเตือน LINE, เก็บเหตุการณ์ลง PostgreSQL, และบันทึก telemetry ลง MLflow
+FallGuard AI คือระบบเฝ้าระวังการล้มแบบ real-time ผ่านเว็บกล้อง (browser) และส่งแจ้งเตือนไป LINE โดยเก็บประวัติเหตุการณ์ลง PostgreSQL และเก็บ telemetry/experiment ลง MLflow
 
-เอกสารติดตั้งแบบ step-by-step:
+เอกสารติดตั้งแบบลงมือทำทีละขั้น:
 - [SETUP_GUIDE.md](SETUP_GUIDE.md)
 
-## สถาปัตยกรรมระบบ
+## Project Goals
 
-- `frontend/` เว็บแอป (React + Vite)
-- `backend/api/` relay API สำหรับ webhook, events, analytics และ image route
-- `backend/database/` schema + migrate + event store
-- `ai_service/` container สำหรับ MLflow server
-- `docker/pgadmin/servers.json` ค่า pre-load server สำหรับ pgAdmin
-- `docker-compose.yml` stack สำหรับ web + relay + postgres + pgadmin + mlflow
+- ตรวจจับเหตุการณ์ล้มจากหน้าเว็บ
+- แจ้งเตือน LINE ได้ทั้งข้อความและรูปภาพ
+- เก็บข้อมูลเหตุการณ์ย้อนหลังเพื่อดูบน timeline/calendar
+- มีฐานข้อมูลและหน้า admin สำหรับตรวจสอบย้อนหลัง
+- มี MLflow สำหรับติดตาม run/metrics ของการแจ้งเตือน
 
-Data flow:
+## System Architecture
 
-1. Frontend ส่ง event ไป `relay` (`/line-webhook`)
-2. Relay ส่ง LINE push message (text/image)
-3. Relay บันทึกเหตุการณ์ลง Postgres (`event_records`, `event_images`, `alert_deliveries`)
-4. Relay log metadata/metrics ไป MLflow
-5. Frontend ดึง timeline/calendar จาก `GET /api/events`
+```mermaid
+flowchart LR
+  A[Browser Web App\nReact + Vite] -->|POST /line-webhook| B[Relay API\nNode.js]
+  A -->|GET /api/events| B
+  A -->|POST /analytics/insight| B
+
+  B -->|INSERT| C[(PostgreSQL)]
+  B -->|Serve images| D[/relay-uploads volume/]
+  B -->|Log metrics/params| E[MLflow]
+  B -->|Push message/image| F[LINE Messaging API]
+
+  G[pgAdmin] --> C
+  H[MLflow UI] --> E
+```
+
+## Main Components
+
+- `frontend/`:
+  UI ตรวจจับ + settings + timeline/calendar
+- `backend/api/`:
+  Relay API (`/line-webhook`, `/api/events`, `/analytics/insight`, `/health`, `/images/*`)
+- `backend/database/`:
+  schema + migration + connection
+- `ai_service/`:
+  MLflow container
+- `docker-compose.yml`:
+  stack หลัก (web, relay, postgres, pgadmin, mlflow)
+- `docker/pgadmin/servers.json`:
+  ค่า preload server ให้ pgAdmin
 
 ## Tech Stack
 
 - Frontend: React 19, TypeScript, Vite
-- Backend Relay: Node.js (native HTTP), `pg`
+- Backend Relay: Node.js (HTTP server), `pg`
 - Database: PostgreSQL 16
 - DB GUI: pgAdmin 4
 - Experiment Tracking: MLflow
-- Reverse Proxy/HTTPS (cloud): Caddy (optional, manual setup)
-- Container: Docker Compose
+- Deployment: Docker Compose (Local/Cloud VM)
+- Reverse proxy/HTTPS (Cloud): Caddy (optional)
 
-## เริ่มต้นใช้งาน (Local)
+## Ports (Default)
 
-### 1) เตรียม environment
+- Web: `5173`
+- Relay: `8787`
+- MLflow: `5001`
+- PostgreSQL: `5432`
+- pgAdmin: `5050`
+
+## Data Flow (Runtime)
+
+1. Browser ตรวจจับการล้ม แล้วส่ง event ไป `POST /line-webhook`
+2. Relay ส่ง LINE push (text + image ถ้ามี)
+3. Relay บันทึกลง `event_records`, `event_images`, `alert_deliveries`
+4. Relay เขียน metrics/params/tags ไป MLflow
+5. Browser ดึงประวัติจาก `GET /api/events` เพื่อแสดง timeline/calendar
+
+## Quick Start (Docker, 10-15 นาที)
+
+1. Clone และตั้งค่า env
 
 ```bash
+git clone https://github.com/ItsTM47/fallguard-ai.git
+cd fallguard-ai
 cp .env.relay.example .env.local
 ```
 
-ค่าอย่างน้อยที่ต้องใส่ใน `.env.local`:
+2. แก้ `.env.local` อย่างน้อย
 
-- `LINE_CHANNEL_ACCESS_TOKEN`
-- `LINE_TARGET_USER_ID`
-- (แนะนำ) `LINE_RELAY_SECRET` และตั้ง `VITE_LINE_RELAY_SECRET` ให้ตรงกัน
-- ถ้าต้องการส่งรูปไป LINE: `LINE_PUBLIC_BASE_URL` ต้องเป็น URL `https` ที่เข้าถึงได้จากภายนอก
+```env
+LINE_CHANNEL_ACCESS_TOKEN=YOUR_LINE_CHANNEL_ACCESS_TOKEN
+LINE_TARGET_USER_ID=Uxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+DATABASE_ENABLED=true
+```
 
-### 2) รันด้วย Docker (แนะนำ)
+3. เปิดระบบ
 
 ```bash
 docker compose up --build -d
 ```
 
-Endpoints:
+4. เช็กว่าบริการขึ้นครบ
 
-- Web UI: `http://localhost:5173`
-- Relay Health: `http://localhost:8787/health`
-- MLflow: `http://localhost:5001`
+```bash
+docker compose ps
+curl -s http://localhost:8787/health
+```
+
+5. เปิดหน้าใช้งาน
+
+- Web: `http://localhost:5173`
 - pgAdmin: `http://localhost:5050`
-- Postgres: `localhost:5432`
+- MLflow: `http://localhost:5001`
 
-หยุดระบบ:
+ถ้าต้องการขั้นตอนละเอียดแบบพาทำจริง ไปที่ [SETUP_GUIDE.md](SETUP_GUIDE.md)
+
+## Where Data Is Stored
+
+### PostgreSQL (`fallguard`)
+
+- `event_records`: เหตุการณ์หลัก (เวลาที่เกิด, confidence, metadata, status LINE)
+- `event_images`: ข้อมูลไฟล์รูปที่ผูกกับ event
+- `alert_deliveries`: ผลลัพธ์การส่งแจ้งเตือนต่อครั้ง
+- `event_records_latest` (view): มุมมองเรียงล่าสุดด้วย `occurred_at DESC, created_at DESC`
+
+### MLflow
+
+- เก็บ run ต่อ event แจ้งเตือน
+- ตัวอย่าง metrics:
+  - `line_push_success`
+  - `has_image`
+  - `line_image_message`
+- ตัวอย่าง params/tags:
+  - `event_type`, `line_status_code`, `public_base_host`
+  - `target_user`, `source=fallguard-relay`
+
+## LINE Integration Notes
+
+- โหมดที่แนะนำสำหรับ deploy/cloud คือใช้ `Webhook` ผ่าน relay (`/line-webhook`)
+- ไม่ควรยิง LINE Messaging API ตรงจาก browser เพราะ CORS และความปลอดภัยของ token
+- ถ้าต้องการส่งรูปผ่าน LINE ได้ ต้องตั้ง `LINE_PUBLIC_BASE_URL` เป็น URL `https` ที่เปิดรูปได้จริงจากภายนอก
+
+## Common Commands
 
 ```bash
+# Start/Stop stack
+docker compose up --build -d
 docker compose down
-```
 
-ดู log:
-
-```bash
+# Logs
 docker compose logs -f --tail=200
-```
 
-### 3) รันแบบ dev เฉพาะ frontend/relay
-
-```bash
-npm install
-npm run dev:relay
-npm run dev
-```
-
-รันชุด dev แบบรวม:
-
-```bash
-npm run dev:all
-```
-
-## ตั้งค่า LINE ในหน้าเว็บ
-
-ในหน้า Settings:
-
-- เลือกโหมด `Webhook`
-- ตั้ง URL เป็น `/line-webhook` หรือ `${VITE_LINE_WEBHOOK_URL}`
-- กดทดสอบแจ้งเตือน
-
-หมายเหตุ:
-
-- การยิง LINE Messaging API ตรงจาก browser จะติด CORS ในเครื่องผู้ใช้อื่น
-- โหมดที่ถูกต้องสำหรับ deploy คือให้ browser ยิงเข้า relay เท่านั้น
-
-## PostgreSQL และ pgAdmin
-
-Relay จะบันทึกข้อมูลอัตโนมัติเมื่อมีการเรียก `/line-webhook`
-
-ตารางหลัก:
-
-- `event_records`
-- `event_images`
-- `alert_deliveries`
-
-### pgAdmin login
-
-- URL: `http://localhost:5050`
-- Email: `admin@admin.com`
-- Password: `admin`
-
-pgAdmin จะ pre-load server ชื่อ `fallguard-postgres` ให้อัตโนมัติ (host: `postgres`)
-
-ถ้าไม่เห็น server ให้ import ซ้ำ:
-
-```bash
-docker compose exec pgadmin sh -lc '/venv/bin/python3 /pgadmin4/setup.py load-servers /pgadmin4/servers.json --user "$PGADMIN_DEFAULT_EMAIL"'
-```
-
-### Query แนะนำสำหรับดูข้อมูลล่าสุด
-
-```sql
-SELECT id, event_type, person_label, location_name, confidence_pct, occurred_at, created_at
-FROM public.event_records_latest
-LIMIT 20;
-```
-
-`event_records_latest` เป็น view ที่เรียงตามเวลาล่าสุดอยู่แล้ว
-
-## Migration
-
-รัน migration:
-
-```bash
+# Migrate DB
 npm run db:migrate
-```
-
-หรือใน Docker:
-
-```bash
+# หรือ
 docker compose exec relay node backend/database/migrate.mjs
-```
 
-ถ้าเจอ `deadlock detected` ตอน migrate:
+# Check latest events from relay
+curl -s "http://localhost:8787/api/events?limit=5"
 
-```bash
-docker compose stop relay
-docker compose run --rm relay node backend/database/migrate.mjs
-docker compose up -d relay
-```
-
-โค้ดปัจจุบันเพิ่ม advisory lock แล้ว เพื่อลดโอกาสชนกันระหว่าง startup migration กับ manual migration
-
-## การ Deploy บน Cloud (แบบ Manual)
-
-แนวทางที่ใช้อยู่ในโปรเจกต์:
-
-1. เตรียม VM (Docker + Compose)
-2. `git pull` โค้ดล่าสุด
-3. รัน `docker compose up -d --build`
-4. เปิด firewall ตามพอร์ตที่ใช้ (`80/443`, `8787`, `5001`, `5050` ตามความจำเป็น)
-5. ถ้าต้องการ HTTPS ใช้ reverse proxy (เช่น Caddy) หน้า web/relay
-
-หมายเหตุสำคัญ:
-
-- การใช้งานจากเครื่องอื่นต้องไม่อิง `localhost:8787` ใน frontend build
-- ใช้ URL relay แบบ public domain/IP เท่านั้น
-
-## MLflow
-
-MLflow รันใน service `mlflow` โดย default:
-
-- Port `5001`
-- Backend store: `sqlite:////mlflow/mlflow.db` (ใน volume `mlflow-data`)
-
-ตัวอย่างเช็ก run ผ่าน API:
-
-```bash
+# Check MLflow API
 curl -s -X POST http://localhost:5001/api/2.0/mlflow/runs/search \
   -H 'Content-Type: application/json' \
   --data '{"experiment_ids":["1"],"max_results":5}'
 ```
 
-## สคริปต์ที่ใช้บ่อย
+## Troubleshooting (สั้น)
 
-- `npm run dev`
-- `npm run dev:relay`
-- `npm run dev:all`
-- `npm run dev:all:with-mlflow`
-- `npm run dev:stop`
-- `npm run db:migrate`
-- `npm run docker:up`
-- `npm run docker:down`
-- `npm run docker:logs`
-- `npm run clean`
-- `npm run clean:all`
+- LINE ส่งไม่ออก: ตรวจ `LINE_CHANNEL_ACCESS_TOKEN`, `LINE_TARGET_USER_ID`
+- รูปไม่ขึ้นใน LINE: ตรวจ `LINE_PUBLIC_BASE_URL` และ `GET /images/<file>` ต้องได้ 200
+- pgAdmin ดูเหมือนไม่มีข้อมูลใหม่: อย่า `ORDER BY id`; ใช้ `event_records_latest`
+- MLflow 403 Invalid Host header: ปรับ `MLFLOW_ALLOWED_HOSTS` / `MLFLOW_CORS_ALLOWED_ORIGINS`
+- Build ล้มเพราะดิสก์เต็ม: prune image/cache และ build เฉพาะ service ที่ต้องใช้
 
-## Security/Privacy Notes
+## Security Checklist
 
-- อย่า commit ไฟล์ `.env.local`
-- เก็บ `LINE_CHANNEL_ACCESS_TOKEN` และ `LLM_API_KEY` เป็นความลับ
-- production ควรตั้งค่า `MLFLOW_ALLOWED_HOSTS` และ `MLFLOW_CORS_ALLOWED_ORIGINS` แบบ strict
-- จำกัดการเปิดพอร์ตสาธารณะเฉพาะที่จำเป็น
+- ห้าม commit `.env.local`
+- เก็บ token/keys ใน env เท่านั้น
+- production ควรตั้ง allowed hosts/cors แบบจำกัดโดเมนจริง
+- เปิดพอร์ตสาธารณะเฉพาะจำเป็น
 
-## Troubleshooting เร็วๆ
+## Documentation
 
-1. pgAdmin ไม่มีข้อมูลใหม่:
-`ORDER BY id` ไม่ใช่เวลาจริง ให้ใช้ `event_records_latest` หรือ `ORDER BY occurred_at DESC`
-
-2. เวลาใน DB เป็น UTC:
-ระบบจัดเก็บ `timestamptz` ปกติ สามารถตั้ง session เป็น `Asia/Bangkok` ใน pgAdmin ได้
-
-3. เปิด MLflow แล้ว `403 Invalid Host header`:
-ตรวจค่า `MLFLOW_ALLOWED_HOSTS` และ CORS ใน compose/env
-
-4. LINE ส่งรูปไม่ขึ้น:
-ตรวจ `LINE_PUBLIC_BASE_URL` ต้องเป็น `https` และไฟล์ใน `/images/<filename>` ต้องเข้าถึงได้จริง
+- คู่มือติดตั้งแบบเต็ม: [SETUP_GUIDE.md](SETUP_GUIDE.md)
+- โครงสร้างฐานข้อมูล: [backend/database/README.md](backend/database/README.md)
