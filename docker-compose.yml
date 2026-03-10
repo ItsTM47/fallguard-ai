@@ -79,6 +79,8 @@ services:
       dockerfile: ai_service/Dockerfile
     environment:
       MLFLOW_PORT: "5001"
+      MLFLOW_WORKERS: ${MLFLOW_WORKERS:-1}
+      MLFLOW_DISABLE_SECURITY_MIDDLEWARE: ${MLFLOW_DISABLE_SECURITY_MIDDLEWARE:-false}
       MLFLOW_BACKEND_STORE_URI: ${MLFLOW_BACKEND_STORE_URI:-sqlite:////mlflow/mlflow.db}
       MLFLOW_DEFAULT_ARTIFACT_ROOT: ${MLFLOW_DEFAULT_ARTIFACT_ROOT:-/mlflow/artifacts}
       MLFLOW_ALLOWED_HOSTS: ${MLFLOW_ALLOWED_HOSTS:-*}
