@@ -4,7 +4,8 @@ import { getContentTypeFromExt, resolveImageFile } from '../services/imageServic
 import { sendJson } from '../utils/http.mjs';
 
 export const handleImageRoute = (_req, res, method, requestPath) => {
-  if (method !== 'GET' || !requestPath.startsWith(relayConfig.imageRoutePrefix)) return false;
+  const isReadMethod = method === 'GET' || method === 'HEAD';
+  if (!isReadMethod || !requestPath.startsWith(relayConfig.imageRoutePrefix)) return false;
 
   const resolved = resolveImageFile(requestPath);
   if (!resolved.ok) {
@@ -19,7 +20,18 @@ export const handleImageRoute = (_req, res, method, requestPath) => {
     return false;
   }
 
-  res.writeHead(200, { 'Content-Type': getContentTypeFromExt(resolved.requestedName) });
+  const contentType = getContentTypeFromExt(resolved.requestedName);
+  if (method === 'HEAD') {
+    const stat = fs.statSync(resolved.imagePath);
+    res.writeHead(200, {
+      'Content-Type': contentType,
+      'Content-Length': stat.size
+    });
+    res.end();
+    return true;
+  }
+
+  res.writeHead(200, { 'Content-Type': contentType });
   fs.createReadStream(resolved.imagePath).pipe(res);
   return true;
 };
