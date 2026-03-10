@@ -16,6 +16,18 @@
 - `event_images` ภาพของเหตุการณ์ (ชื่อไฟล์, path, hash, size)
 - `alert_deliveries` ผลการส่งแจ้งเตือน LINE (success/status/error/latency/payload)
 
+## ตรวจข้อมูลล่าสุดใน pgAdmin
+
+รันคำสั่งนี้เพื่อดูแถวล่าสุดตามเวลาเหตุการณ์:
+
+```sql
+SELECT id, event_type, person_label, location_name, confidence_pct, occurred_at, created_at
+FROM event_records_latest
+LIMIT 20;
+```
+
+> schema จะตั้งค่า DB timezone เป็น `Asia/Bangkok` ให้อัตโนมัติสำหรับ session ใหม่
+
 ## วิธีใช้งาน
 
 1. ตั้งค่า `.env.local`

@@ -58,6 +58,13 @@ CREATE INDEX IF NOT EXISTS idx_event_records_person_label ON event_records (pers
 CREATE INDEX IF NOT EXISTS idx_event_images_event_id ON event_images (event_id);
 CREATE INDEX IF NOT EXISTS idx_alert_deliveries_event_id ON alert_deliveries (event_id);
 CREATE INDEX IF NOT EXISTS idx_alert_deliveries_attempted_at ON alert_deliveries (attempted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_event_records_created_at ON event_records (created_at DESC);
+
+-- Convenience view for operators: always inspect latest events first.
+CREATE OR REPLACE VIEW event_records_latest AS
+SELECT *
+FROM event_records
+ORDER BY occurred_at DESC, created_at DESC;
 
 ALTER TABLE event_records
 ADD COLUMN IF NOT EXISTS line_success BOOLEAN,
@@ -77,3 +84,15 @@ DROP TABLE IF EXISTS person_profiles CASCADE;
 DROP TABLE IF EXISTS cameras CASCADE;
 DROP TABLE IF EXISTS sites CASCADE;
 DROP TABLE IF EXISTS system_settings CASCADE;
+
+-- Default DB timezone for new sessions (e.g., pgAdmin query tool).
+DO $$
+BEGIN
+  IF current_database() = 'fallguard' THEN
+    EXECUTE 'ALTER DATABASE fallguard SET timezone TO ''Asia/Bangkok''';
+  END IF;
+EXCEPTION
+  WHEN insufficient_privilege THEN
+    -- Ignore when connected with a user that cannot alter database settings.
+    NULL;
+END $$;
